@@ -1,0 +1,48 @@
+# Python Bytecode and Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Model Weights and Checkpoints (Local cache - do NOT commit binary weights)
+models/
+*.onnx
+*.bin
+*.gguf
+*.pt
+*.safetensors
+.cache/
+hf_cache/
+
+# Audio recordings & temporary media
+recordings/
+*.wav
+*.mp3
+*.ogg
+*.raw
+scratch/
+
+# Environment Variables & Secrets
+.env
+*.env.local
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
