@@ -18,31 +18,33 @@ This project is built strictly in modular vertical slices. Each phase produces a
 
 ---
 
-### ⏳ Phase 1: Minimal Working Voice Loop (Vertical Slice)
+### ✅ Phase 1: Minimal Working Voice Loop (Vertical Slice) [Completed]
 **Objective:** Establish a working, turn-based round-trip voice interaction without streaming complexity.
 - **Components:**
-  1. `app/audio/input.py`: Blocking microphone capture with fixed record duration or keypress trigger.
+  1. `app/audio/input.py`: Blocking microphone capture with fixed record duration.
   2. `app/stt/local_stt.py`: Audio buffer transcription via `faster-whisper` (`base.en`, INT8).
-  3. `app/llm/main_model.py`: Synchronous / streaming LLM completion via local Ollama API.
-  4. `app/tts/local_tts.py`: Synthesis of text response into WAV buffer via `piper-tts`.
+  3. `app/llm/main_model.py`: Synchronous / streaming LLM completion via local Ollama API with fallback.
+  4. `app/tts/local_tts.py`: Synthesis of text response into audio array via `piper-tts`.
   5. `app/audio/playback.py`: Output playback to speaker via `sounddevice`.
-  6. `app/main.py`: Command-line loop connecting all 5 steps.
+  6. `app/main.py`: Command-line loop connecting all 5 steps with latency metrics.
 - **Acceptance Criteria:**
-  - User can speak a prompt (e.g. *"What is the capital of France?"*).
-  - Terminal prints the transcript, the LLM response, and plays audible speech through speakers.
-  - End-to-end turn latency is printed to the terminal.
+  - [x] User can speak a prompt (e.g. *"What is the capital of France?"*).
+  - [x] Terminal prints the transcript, the LLM response, and plays audible speech through speakers.
+  - [x] End-to-end turn latency is printed to the terminal.
 
 ---
 
-### ⏳ Phase 2: Streaming Audio & Turn Management
+### ✅ Phase 2: Streaming Audio & Turn Management [Completed]
 **Objective:** Transition from batch recording to continuous audio stream with Voice Activity Detection (VAD) and barge-in.
 - **Components:**
-  1. `app/audio/vad.py`: Silero VAD ONNX streaming frame evaluator (32ms frames).
-  2. `app/conversation/turn_manager.py`: State machine (`IDLE`, `USER_SPEAKING`, `USER_PAUSED`, `USER_TURN_FINALIZING`, `AGENT_SPEAKING`).
+  1. `app/audio/vad.py`: Silero VAD ONNX streaming frame evaluator (32ms frames) with energy fallback.
+  2. `app/conversation/turn_manager.py`: State machine (`IDLE`, `USER_SPEAKING`, `USER_PAUSED`, `USER_TURN_FINALIZING`, `AGENT_SPEAKING`, `INTERRUPTED`, `CANCELLED`).
   3. `app/conversation/cancellation.py`: Real-time barge-in detector with `sounddevice` output buffer flush.
+  4. `app/conversation/orchestrator.py`: Full asynchronous live stream loop with real-time barge-in.
 - **Acceptance Criteria:**
-  - Agent automatically begins listening without manual keypresses.
-  - Natural pauses (< 500ms) do not cut the user off.
+  - [x] Agent automatically begins listening without manual keypresses.
+  - [x] Natural pauses (< 500ms) do not cut the user off.
+  - [x] Speaking while the agent is talking instantly stops playback within < 100ms.
   - Speaking while the agent is talking instantly stops playback within < 100ms.
 
 ---

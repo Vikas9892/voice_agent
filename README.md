@@ -56,8 +56,8 @@ The system is configured and tested for consumer-grade CPU architectures:
 ## 🛠️ Project Phases
 
 - [x] **Phase 0:** Hardware Inspection, Architecture & Decision Blueprint
-- [ ] **Phase 1:** Minimal Working Voice Loop (Microphone → STT → LLM → TTS → Speaker)
-- [ ] **Phase 2:** Streaming STT & Robust Turn Management (VAD, Endpointing, Barge-In)
+- [x] **Phase 1:** Minimal Working Voice Loop (Microphone → STT → LLM → TTS → Speaker)
+- [x] **Phase 2:** Streaming STT & Robust Turn Management (VAD, Endpointing, Barge-In)
 - [ ] **Phase 3:** Audio Preprocessing & Model Prewarming Lifecycle
 - [ ] **Phase 4:** Observability, Monotonic Timestamps & Latency Profiling
 - [ ] **Phase 5:** Contextual SLM Filler Engine
@@ -66,6 +66,23 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [ ] **Phase 8:** Packaging, Local UI & Developer Documentation
 
 ---
+
+## 🏃 Running the Voice Agent
+
+### 1. Batch Turn Mode (Phase 1)
+```bash
+# Run one turn with live microphone input
+uv run python app/main.py
+
+# Run with simulated audio (testing without mic)
+uv run python app/main.py --simulate
+```
+
+### 2. Live Streaming Mode with Real-Time Barge-In (Phase 2)
+```bash
+# Run continuous streaming VAD and turn-taking loop with interruptible playback
+uv run python app/main.py --streaming
+```
 
 ## 🚀 Quickstart (Phase 0 Setup)
 
