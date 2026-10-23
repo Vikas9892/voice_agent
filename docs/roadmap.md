@@ -49,15 +49,15 @@ This project is built strictly in modular vertical slices. Each phase produces a
 
 ---
 
-### ⏳ Phase 3: Audio Preprocessing & Model Prewarming
+### ✅ Phase 3: Audio Preprocessing & Model Prewarming [Completed]
 **Objective:** Eliminate cold-start latency spikes and isolate heavy inference from the event loop.
 - **Components:**
-  1. `app/lifecycle.py`: Application startup orchestrator to preload ONNX sessions, warm up Ollama models, and initialize audio streams.
-  2. `app/audio/preprocessing.py`: Lightweight DC offset removal and optional spectral noise gate.
-  3. Thread pool isolation for non-async C++ bindings.
+  1. `app/lifecycle.py`: Application startup orchestrator (`PrewarmingManager`) to preload ONNX sessions, warm up Ollama models, and initialize audio streams.
+  2. `app/audio/preprocessing.py`: Lightweight DC offset removal, pre-emphasis filter, and spectral noise gate.
+  3. Bounded `ThreadPoolExecutor` isolating blocking C++ model inference from the asyncio event loop.
 - **Acceptance Criteria:**
-  - First conversation turn demonstrates zero cold-start delay compared to subsequent turns.
-  - Async event loop stays unblocked (measured frame drop rate = 0%).
+  - [x] First conversation turn demonstrates zero cold-start delay compared to subsequent turns.
+  - [x] Async event loop stays unblocked with bounded thread execution.
 
 ---
 

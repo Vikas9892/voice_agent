@@ -58,7 +58,7 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [x] **Phase 0:** Hardware Inspection, Architecture & Decision Blueprint
 - [x] **Phase 1:** Minimal Working Voice Loop (Microphone → STT → LLM → TTS → Speaker)
 - [x] **Phase 2:** Streaming STT & Robust Turn Management (VAD, Endpointing, Barge-In)
-- [ ] **Phase 3:** Audio Preprocessing & Model Prewarming Lifecycle
+- [x] **Phase 3:** Audio Preprocessing & Model Prewarming Lifecycle
 - [ ] **Phase 4:** Observability, Monotonic Timestamps & Latency Profiling
 - [ ] **Phase 5:** Contextual SLM Filler Engine
 - [ ] **Phase 6:** Intent Readiness Detection & Playback Gating

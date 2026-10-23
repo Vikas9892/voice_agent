@@ -1,7 +1,6 @@
 import asyncio
 import time
 import numpy as np
-import sounddevice as sd
 
 from app.audio.playback import play_audio, stop_playback
 from app.audio.preprocessing import preprocess_audio
@@ -24,6 +23,7 @@ class StreamingVoiceOrchestrator:
         llm: LocalLLM,
         tts: LocalTTS,
         cancellation: CancellationCoordinator | None = None,
+        executor=None,
         sample_rate: int = 16000,
         frame_samples: int = 512,
     ):
@@ -32,6 +32,7 @@ class StreamingVoiceOrchestrator:
         self.llm = llm
         self.tts = tts
         self.cancellation = cancellation or CancellationCoordinator()
+        self.executor = executor
         self.sample_rate = sample_rate
         self.frame_samples = frame_samples
         self.audio_queue: asyncio.Queue = asyncio.Queue()
@@ -41,9 +42,9 @@ class StreamingVoiceOrchestrator:
         """Asynchronous execution of STT -> LLM -> TTS -> Playback with cancellation checks."""
         t_turn_start = time.perf_counter()
 
-        # 1. STT (run in thread executor to keep event loop free)
+        # 1. STT (run in bounded thread executor to keep event loop free)
         loop = asyncio.get_running_loop()
-        transcript = await loop.run_in_executor(None, self.stt.transcribe, audio_buffer)
+        transcript = await loop.run_in_executor(self.executor, self.stt.transcribe, audio_buffer)
 
         if self.cancellation.is_cancelled() or not transcript.strip():
             self.turn_manager.reset()
@@ -52,7 +53,7 @@ class StreamingVoiceOrchestrator:
         print(f"\n[User (Turn {turn_id})]: {transcript}")
 
         # 2. LLM
-        response = await loop.run_in_executor(None, self.llm.generate, transcript)
+        response = await loop.run_in_executor(self.executor, self.llm.generate, transcript)
         if self.cancellation.is_cancelled() or not response.strip():
             self.turn_manager.reset()
             return
@@ -60,7 +61,7 @@ class StreamingVoiceOrchestrator:
         print(f"[Agent (Turn {turn_id})]: {response}")
 
         # 3. TTS
-        tts_audio = await loop.run_in_executor(None, self.tts.synthesize, response, settings.tts_sample_rate)
+        tts_audio = await loop.run_in_executor(self.executor, self.tts.synthesize, response, settings.tts_sample_rate)
         if self.cancellation.is_cancelled() or len(tts_audio) == 0:
             self.turn_manager.reset()
             return
@@ -96,6 +97,7 @@ class StreamingVoiceOrchestrator:
 
     async def run_streaming(self, max_turns: int | None = None):
         """Run continuous live streaming audio loop with real-time barge-in."""
+        import sounddevice as sd
         completed_turns = 0
         loop = asyncio.get_running_loop()
 
