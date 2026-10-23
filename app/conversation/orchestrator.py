@@ -4,6 +4,7 @@ import numpy as np
 import sounddevice as sd
 
 from app.audio.playback import play_audio, stop_playback
+from app.audio.preprocessing import preprocess_audio
 from app.config import settings
 from app.conversation.cancellation import CancellationCoordinator
 from app.conversation.state import TurnState
@@ -87,10 +88,10 @@ class StreamingVoiceOrchestrator:
             print(f"[Turn {turn_id} complete in {total_time}ms. Listening...]")
 
     def _audio_callback(self, indata, frames, time_info, status):
-        """SoundDevice InputStream callback pushing 32ms frames to asyncio queue."""
+        """SoundDevice InputStream callback pushing preprocessed 32ms frames to asyncio queue."""
         if status:
             pass
-        frame = indata[:, 0].copy()
+        frame = preprocess_audio(indata[:, 0].copy())
         self.audio_queue.put_nowait(frame)
 
     async def run_streaming(self, max_turns: int | None = None):
