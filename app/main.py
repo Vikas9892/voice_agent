@@ -10,7 +10,9 @@ from app.audio.vad import SileroVAD
 from app.config import settings
 from app.conversation.orchestrator import StreamingVoiceOrchestrator
 from app.conversation.turn_manager import TurnManager
+from app.intent.filler_policy import FillerPolicy
 from app.lifecycle import PrewarmingManager
+from app.llm.filler_model import FillerModel
 from app.llm.main_model import LocalLLM
 from app.stt.local_stt import LocalSTT
 from app.tts.local_tts import LocalTTS
@@ -84,6 +86,8 @@ def main():
     stt = LocalSTT(model_size=settings.stt_model_size, device=settings.stt_device, compute_type=settings.stt_compute_type)
     llm = LocalLLM(base_url=settings.llm_base_url, model=settings.llm_model)
     tts = LocalTTS(voice_model_path=settings.tts_voice_model)
+    filler_model = FillerModel(base_url=settings.llm_base_url)
+    filler_policy = FillerPolicy()
 
     lifecycle = PrewarmingManager(vad=vad, stt=stt, llm=llm, tts=tts)
     if not args.no_prewarm and not args.simulate:
@@ -106,6 +110,8 @@ def main():
                 llm=llm,
                 tts=tts,
                 executor=lifecycle.executor,
+                filler_model=filler_model,
+                filler_policy=filler_policy,
                 sample_rate=settings.audio_sample_rate,
                 frame_samples=settings.audio_chunk_samples,
             )

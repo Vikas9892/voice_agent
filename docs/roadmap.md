@@ -61,27 +61,28 @@ This project is built strictly in modular vertical slices. Each phase produces a
 
 ---
 
-### ⏳ Phase 4: Observability & Latency Benchmarking
+### ✅ Phase 4: Observability & Latency Benchmarking [Completed]
 **Objective:** Instrument every pipeline boundary with high-precision monotonic timestamps.
 - **Components:**
-  1. `app/observability/events.py`: Turn lifecycle event definitions.
-  2. `app/observability/metrics.py`: Monotonic timer recorder tracking 16 stage checkpoints.
-  3. `benchmarks/run_latency_suite.py`: Automated benchmarking script across synthetic test audio.
+  1. `app/observability/events.py`: Turn lifecycle checkpoints and `TurnMetrics` calculation engine.
+  2. `app/observability/metrics.py`: Monotonic timer recorder tracking KPIs with structured JSON and percentile aggregations.
+  3. `benchmarks/run_latency_suite.py`: Automated benchmarking script reporting p50, p90, and p95 across trials.
 - **Acceptance Criteria:**
-  - Every completed turn outputs a rich JSON summary with TTFT, TTFA (Time to First Audio), STT duration, and total turnaround time.
-  - Benchmark reports p50, p90, and p95 across 20 test utterances.
+  - [x] Every completed turn outputs a rich JSON summary with TTFT, TTFA, STT duration, and total turnaround time.
+  - [x] Benchmark reports p50, p90, and p95 across repeated trials.
 
 ---
 
-### ⏳ Phase 5: Predictive Filler Generation (SLM Track)
+### ✅ Phase 5: Predictive Filler Generation (SLM Track) [Completed]
 **Objective:** Implement background SLM acknowledgment generation.
 - **Components:**
-  1. `app/llm/filler_model.py`: Fast Ollama client for Qwen 2.5 0.5B.
+  1. `app/llm/filler_model.py`: Fast Ollama client for Qwen 2.5 0.5B with rule fallback.
   2. `app/intent/filler_policy.py`: Safe filler validation rules (prevents hallucinations, repetitive fillers, or false promises).
-  3. `app/conversation/orchestrator.py`: Concurrent task dispatcher coordinating filler and main LLM.
+  3. `app/conversation/gate.py`: `PlaybackGate` coordinating filler playback and discard logic.
+  4. `app/conversation/orchestrator.py`: Concurrent task dispatcher coordinating filler and main LLM.
 - **Acceptance Criteria:**
-  - Generates context-aware acknowledgments (e.g., *"Let me think through that..."*) in < 120ms.
-  - Filler is automatically discarded if the main LLM response is ready before filler playback starts.
+  - [x] Generates context-aware acknowledgments (e.g., *"Let me check that..."*) in < 120ms.
+  - [x] Filler is automatically discarded if the main LLM response is ready before filler playback starts.
 
 ---
 

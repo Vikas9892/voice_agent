@@ -6,14 +6,16 @@ from app.audio.playback import play_audio, stop_playback
 from app.audio.preprocessing import preprocess_audio
 from app.config import settings
 from app.conversation.cancellation import CancellationCoordinator
+from app.conversation.gate import PlaybackGate
 from app.conversation.state import TurnState
 from app.conversation.turn_manager import TurnManager
+from app.intent.filler_policy import FillerPolicy
+from app.llm.filler_model import FillerModel
 from app.llm.main_model import LocalLLM
+from app.observability.events import TurnMetrics
+from app.observability.metrics import MetricsLogger
 from app.stt.local_stt import LocalSTT
 from app.tts.local_tts import LocalTTS
-
-
-from app.observability.metrics import MetricsLogger
 
 
 class StreamingVoiceOrchestrator:
@@ -28,6 +30,8 @@ class StreamingVoiceOrchestrator:
         cancellation: CancellationCoordinator | None = None,
         executor=None,
         metrics_logger: MetricsLogger | None = None,
+        filler_model: FillerModel | None = None,
+        filler_policy: FillerPolicy | None = None,
         sample_rate: int = 16000,
         frame_samples: int = 512,
     ):
@@ -38,14 +42,29 @@ class StreamingVoiceOrchestrator:
         self.cancellation = cancellation or CancellationCoordinator()
         self.executor = executor
         self.metrics_logger = metrics_logger or MetricsLogger()
+        self.filler_model = filler_model
+        self.filler_policy = filler_policy or FillerPolicy()
         self.sample_rate = sample_rate
         self.frame_samples = frame_samples
         self.audio_queue: asyncio.Queue = asyncio.Queue()
         self.active_turn_task: asyncio.Task | None = None
-        self.active_metrics = None
+        self.active_metrics: TurnMetrics | None = None
+
+    async def _wait_playback(self, duration_sec: float, metrics: TurnMetrics) -> bool:
+        """Wait for audio playback while watching for user barge-in. Returns False if interrupted."""
+        elapsed = 0.0
+        check_interval = 0.03
+        while elapsed < duration_sec:
+            if self.cancellation.is_cancelled():
+                stop_playback()
+                metrics.mark("playback_cancelled")
+                return False
+            await asyncio.sleep(check_interval)
+            elapsed += check_interval
+        return True
 
     async def _handle_turn(self, audio_buffer: np.ndarray, turn_id: int):
-        """Asynchronous execution of STT -> LLM -> TTS -> Playback with cancellation checks."""
+        """Asynchronous execution of dual-track STT -> (Filler || Main LLM) -> TTS -> Playback."""
         metrics = self.metrics_logger.create_turn_metrics(turn_id)
         self.active_metrics = metrics
         metrics.mark("user_turn_end_detected")
@@ -60,8 +79,23 @@ class StreamingVoiceOrchestrator:
             return
 
         print(f"\n[User (Turn {turn_id})]: {transcript}")
+        gate = PlaybackGate(self.filler_policy)
 
-        # 2. LLM
+        # 2. Speculative Filler Generation (Parallel Track)
+        filler_task = None
+        if self.filler_policy.is_eligible(transcript) and self.filler_model is not None:
+            metrics.mark("filler_generation_started")
+
+            async def _generate_filler():
+                cand = await loop.run_in_executor(self.executor, self.filler_model.generate_filler, transcript)
+                phrase = self.filler_policy.select_filler(transcript, cand)
+                audio = await loop.run_in_executor(self.executor, self.tts.synthesize, phrase, settings.tts_sample_rate)
+                metrics.mark("filler_generation_completed")
+                return phrase, audio
+
+            filler_task = asyncio.create_task(_generate_filler())
+
+        # 3. Main LLM Generation
         metrics.mark("main_llm_request_started")
         response = await loop.run_in_executor(self.executor, self.llm.generate, transcript)
         metrics.mark("main_llm_first_token")
@@ -73,40 +107,45 @@ class StreamingVoiceOrchestrator:
 
         print(f"[Agent (Turn {turn_id})]: {response}")
 
-        # 3. TTS
+        # Check if filler is ready to bridge latency gap before main TTS starts
+        if filler_task and filler_task.done() and not gate.main_ready:
+            try:
+                f_phrase, f_audio = filler_task.result()
+                if gate.should_play_filler(f_phrase) and len(f_audio) > 0:
+                    self.turn_manager.set_agent_speaking()
+                    metrics.mark("agent_first_audio_played")
+                    print(f"[Agent Filler]: {f_phrase}")
+                    play_audio(f_audio, sample_rate=settings.tts_sample_rate, blocking=False)
+                    if not await self._wait_playback(len(f_audio) / settings.tts_sample_rate, metrics):
+                        self.metrics_logger.record_turn(metrics)
+                        return
+            except Exception:
+                pass
+
+        # 4. Main TTS Synthesis
         metrics.mark("tts_request_started")
         tts_audio = await loop.run_in_executor(self.executor, self.tts.synthesize, response, settings.tts_sample_rate)
         metrics.mark("tts_first_audio_ready")
+        gate.mark_main_ready()
 
         if self.cancellation.is_cancelled() or len(tts_audio) == 0:
             self.turn_manager.reset()
             return
 
-        # 4. Playback with Barge-In monitoring
+        # 5. Playback Main Answer
         self.turn_manager.set_agent_speaking()
-        metrics.mark("agent_first_audio_played")
+        if "agent_first_audio_played" not in metrics.timestamps:
+            metrics.mark("agent_first_audio_played")
         metrics.mark("main_answer_first_audio_played")
         play_audio(tts_audio, sample_rate=settings.tts_sample_rate, blocking=False)
 
-        # Calculate playback duration in seconds
-        playback_duration = len(tts_audio) / settings.tts_sample_rate
-        elapsed = 0.0
-        check_interval = 0.03  # Check every 30ms
-
-        while elapsed < playback_duration:
-            if self.cancellation.is_cancelled():
-                stop_playback()
-                metrics.mark("playback_cancelled")
-                self.metrics_logger.record_turn(metrics)
-                print(f"[Barge-In] Turn {turn_id} playback interrupted by user!")
-                return
-            await asyncio.sleep(check_interval)
-            elapsed += check_interval
-
-        if not self.cancellation.is_cancelled():
+        completed_ok = await self._wait_playback(len(tts_audio) / settings.tts_sample_rate, metrics)
+        if completed_ok and not self.cancellation.is_cancelled():
             self.turn_manager.reset()
             summary = self.metrics_logger.record_turn(metrics)
-            print(f"[Turn {turn_id} complete. Perceived latency: {summary.get('perceived_latency_ms')}ms]")
+            print(f"[Turn {turn_id} complete. Perceived: {summary.get('perceived_latency_ms')}ms | Main: {summary.get('main_answer_latency_ms')}ms]")
+        else:
+            self.metrics_logger.record_turn(metrics)
 
     def _audio_callback(self, indata, frames, time_info, status):
         """SoundDevice InputStream callback pushing preprocessed 32ms frames to asyncio queue."""
@@ -141,6 +180,8 @@ class StreamingVoiceOrchestrator:
 
                 if new_state == TurnState.INTERRUPTED:
                     # User interrupted agent during playback!
+                    if self.active_metrics:
+                        self.active_metrics.mark("interruption_detected")
                     self.cancellation.cancel_current_turn()
                     if self.active_turn_task and not self.active_turn_task.done():
                         self.active_turn_task.cancel()

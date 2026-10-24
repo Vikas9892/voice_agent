@@ -59,13 +59,19 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [x] **Phase 1:** Minimal Working Voice Loop (Microphone → STT → LLM → TTS → Speaker)
 - [x] **Phase 2:** Streaming STT & Robust Turn Management (VAD, Endpointing, Barge-In)
 - [x] **Phase 3:** Audio Preprocessing & Model Prewarming Lifecycle
-- [ ] **Phase 4:** Observability, Monotonic Timestamps & Latency Profiling
-- [ ] **Phase 5:** Contextual SLM Filler Engine
+- [x] **Phase 4:** Observability, Monotonic Timestamps & Latency Profiling
+- [x] **Phase 5:** Contextual SLM Filler Engine
 - [ ] **Phase 6:** Intent Readiness Detection & Playback Gating
 - [ ] **Phase 7:** End-to-End Benchmarking & Optimization
 - [ ] **Phase 8:** Packaging, Local UI & Developer Documentation
 
 ---
+
+## 📊 Running the Latency Benchmark Suite
+```bash
+# Run 5 automated trials measuring p50, p90, and p95 across all stages
+uv run python benchmarks/run_latency_suite.py --turns 5
+```
 
 ## 🏃 Running the Voice Agent
 
