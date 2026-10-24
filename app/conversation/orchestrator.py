@@ -13,6 +13,9 @@ from app.stt.local_stt import LocalSTT
 from app.tts.local_tts import LocalTTS
 
 
+from app.observability.metrics import MetricsLogger
+
+
 class StreamingVoiceOrchestrator:
     """Asynchronous orchestrator coordinating streaming VAD, turn taking, and interruptible playback."""
 
@@ -24,6 +27,7 @@ class StreamingVoiceOrchestrator:
         tts: LocalTTS,
         cancellation: CancellationCoordinator | None = None,
         executor=None,
+        metrics_logger: MetricsLogger | None = None,
         sample_rate: int = 16000,
         frame_samples: int = 512,
     ):
@@ -33,18 +37,23 @@ class StreamingVoiceOrchestrator:
         self.tts = tts
         self.cancellation = cancellation or CancellationCoordinator()
         self.executor = executor
+        self.metrics_logger = metrics_logger or MetricsLogger()
         self.sample_rate = sample_rate
         self.frame_samples = frame_samples
         self.audio_queue: asyncio.Queue = asyncio.Queue()
         self.active_turn_task: asyncio.Task | None = None
+        self.active_metrics = None
 
     async def _handle_turn(self, audio_buffer: np.ndarray, turn_id: int):
         """Asynchronous execution of STT -> LLM -> TTS -> Playback with cancellation checks."""
-        t_turn_start = time.perf_counter()
+        metrics = self.metrics_logger.create_turn_metrics(turn_id)
+        self.active_metrics = metrics
+        metrics.mark("user_turn_end_detected")
 
         # 1. STT (run in bounded thread executor to keep event loop free)
         loop = asyncio.get_running_loop()
         transcript = await loop.run_in_executor(self.executor, self.stt.transcribe, audio_buffer)
+        metrics.mark("stt_final_transcript")
 
         if self.cancellation.is_cancelled() or not transcript.strip():
             self.turn_manager.reset()
@@ -53,7 +62,11 @@ class StreamingVoiceOrchestrator:
         print(f"\n[User (Turn {turn_id})]: {transcript}")
 
         # 2. LLM
+        metrics.mark("main_llm_request_started")
         response = await loop.run_in_executor(self.executor, self.llm.generate, transcript)
+        metrics.mark("main_llm_first_token")
+        metrics.mark("main_llm_generation_completed")
+
         if self.cancellation.is_cancelled() or not response.strip():
             self.turn_manager.reset()
             return
@@ -61,13 +74,18 @@ class StreamingVoiceOrchestrator:
         print(f"[Agent (Turn {turn_id})]: {response}")
 
         # 3. TTS
+        metrics.mark("tts_request_started")
         tts_audio = await loop.run_in_executor(self.executor, self.tts.synthesize, response, settings.tts_sample_rate)
+        metrics.mark("tts_first_audio_ready")
+
         if self.cancellation.is_cancelled() or len(tts_audio) == 0:
             self.turn_manager.reset()
             return
 
         # 4. Playback with Barge-In monitoring
         self.turn_manager.set_agent_speaking()
+        metrics.mark("agent_first_audio_played")
+        metrics.mark("main_answer_first_audio_played")
         play_audio(tts_audio, sample_rate=settings.tts_sample_rate, blocking=False)
 
         # Calculate playback duration in seconds
@@ -78,6 +96,8 @@ class StreamingVoiceOrchestrator:
         while elapsed < playback_duration:
             if self.cancellation.is_cancelled():
                 stop_playback()
+                metrics.mark("playback_cancelled")
+                self.metrics_logger.record_turn(metrics)
                 print(f"[Barge-In] Turn {turn_id} playback interrupted by user!")
                 return
             await asyncio.sleep(check_interval)
@@ -85,8 +105,8 @@ class StreamingVoiceOrchestrator:
 
         if not self.cancellation.is_cancelled():
             self.turn_manager.reset()
-            total_time = round((time.perf_counter() - t_turn_start) * 1000, 1)
-            print(f"[Turn {turn_id} complete in {total_time}ms. Listening...]")
+            summary = self.metrics_logger.record_turn(metrics)
+            print(f"[Turn {turn_id} complete. Perceived latency: {summary.get('perceived_latency_ms')}ms]")
 
     def _audio_callback(self, indata, frames, time_info, status):
         """SoundDevice InputStream callback pushing preprocessed 32ms frames to asyncio queue."""
