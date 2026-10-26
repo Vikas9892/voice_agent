@@ -86,14 +86,15 @@ This project is built strictly in modular vertical slices. Each phase produces a
 
 ---
 
-### ⏳ Phase 6: Intent Readiness & Speculative Execution
+### ✅ Phase 6: Intent Readiness & Speculative Execution [Completed]
 **Objective:** Trigger filler generation before the user stops speaking by analyzing partial STT hypotheses.
 - **Components:**
   1. `app/intent/readiness.py`: Real-time partial transcript analyzer checking syntax completeness, question classification, and transcript stability.
-  2. `app/conversation/gate.py`: Playback gate ensuring audio is never played over the user.
+  2. `app/conversation/gate.py`: Playback gate ensuring audio is never played over the user with speech collision safety.
+  3. `app/conversation/orchestrator.py`: Speculative filler pipeline running concurrently with streaming speech.
 - **Acceptance Criteria:**
-  - Long queries trigger filler generation 300–600ms before user turn finalization.
-  - Zero speech collision (agent never speaks while user VAD is active).
+  - [x] Long queries trigger filler generation 300–600ms before user turn finalization.
+  - [x] Zero speech collision (agent never speaks while user VAD is active).
 
 ---
 
