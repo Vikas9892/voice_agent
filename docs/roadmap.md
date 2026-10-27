@@ -98,13 +98,17 @@ This project is built strictly in modular vertical slices. Each phase produces a
 
 ---
 
-### ⏳ Phase 7: Optimization & Stress Testing
+### ✅ Phase 7: Optimization & Stress Testing [Completed]
 **Objective:** Profile and squeeze performance on the AMD Ryzen 5 CPU.
 - **Activities:**
-  - Chunk size tuning (16ms vs 32ms vs 64ms).
-  - Whisper beam size and quantization tuning.
-  - Thread affinity and concurrency limits.
-  - Edge-case testing: rapid barge-in, background office noise, compound questions.
+  - [x] Chunk size tuning (16ms vs 32ms vs 64ms) via dynamic frame intervals in `SileroVAD` and `TurnManager`.
+  - [x] Whisper beam size and quantization tuning (`beam_size=1` greedy baseline, `int8` CTranslate2).
+  - [x] CPU thread affinity and concurrency limits (bounded workers and OpenMP/BLAS thread budgeting).
+  - [x] Edge-case stress testing: rapid barge-in, background office noise, compound questions, thread saturation.
+- **Acceptance Criteria:**
+  - [x] VAD frame processing takes < 1.0ms on CPU with < 2.5% CPU overhead across 16ms/32ms/64ms frames.
+  - [x] Rapid back-to-back barge-in interruptions abort cleanly without leaked audio or state desynchronization.
+  - [x] Natural mid-sentence pauses (< 500ms) do not cut off compound questions.
 
 ---
 
