@@ -5,7 +5,13 @@ import numpy as np
 class SileroVAD:
     """Voice Activity Detector using Silero ONNX runtime with energy fallback."""
 
-    def __init__(self, model_path: str = "models/silero_vad.onnx", threshold: float = 0.5):
+    def __init__(
+        self,
+        model_path: str = "models/silero_vad.onnx",
+        threshold: float = 0.5,
+        intra_op_threads: int = 1,
+        inter_op_threads: int = 1,
+    ):
         self.threshold = threshold
         self.session = None
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
@@ -15,8 +21,8 @@ class SileroVAD:
             try:
                 import onnxruntime as ort
                 opts = ort.SessionOptions()
-                opts.inter_op_num_threads = 1
-                opts.intra_op_num_threads = 1
+                opts.inter_op_num_threads = inter_op_threads
+                opts.intra_op_num_threads = intra_op_threads
                 self.session = ort.InferenceSession(model_path, sess_options=opts, providers=["CPUExecutionProvider"])
             except Exception:
                 self.session = None
@@ -27,14 +33,20 @@ class SileroVAD:
         self._context = np.zeros((1, 64), dtype=np.float32)
 
     def get_speech_prob(self, frame: np.ndarray, sample_rate: int = 16000) -> float:
-        """Compute speech probability for a 32ms frame (512 samples @ 16kHz)."""
+        """Compute speech probability for an audio frame (supports 16ms, 32ms, and 64ms chunk sizes)."""
         if len(frame) == 0:
             return 0.0
 
         if self.session is not None:
             try:
-                # Silero expects float32 tensor [1, N]
-                x = np.expand_dims(frame.astype(np.float32), axis=0)
+                # Silero expects float32 tensor [1, 512] at 16kHz
+                eval_frame = frame.astype(np.float32)
+                if len(eval_frame) < 512:
+                    eval_frame = np.pad(eval_frame, (0, 512 - len(eval_frame)))
+                elif len(eval_frame) > 512:
+                    eval_frame = eval_frame[:512]
+
+                x = np.expand_dims(eval_frame, axis=0)
                 sr = np.array([sample_rate], dtype=np.int64)
                 inputs = {
                     "input": x,

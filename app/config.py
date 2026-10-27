@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"
     stt_beam_size: int = 1
+    stt_cpu_threads: int = 4
+
+    # CPU Optimization & Concurrency Limits (Ryzen 5 4-core budget)
+    onnx_intra_op_threads: int = 2
+    onnx_inter_op_threads: int = 1
+    executor_max_workers: int = 2
 
     # LLM
     llm_base_url: str = "http://localhost:11434"

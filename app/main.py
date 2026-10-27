@@ -84,15 +84,31 @@ def main():
     args = parser.parse_args()
 
     print("Initializing Voice Agent engines...")
-    vad = SileroVAD(threshold=settings.vad_threshold)
-    stt = LocalSTT(model_size=settings.stt_model_size, device=settings.stt_device, compute_type=settings.stt_compute_type)
+    vad = SileroVAD(
+        threshold=settings.vad_threshold,
+        intra_op_threads=settings.onnx_intra_op_threads,
+        inter_op_threads=settings.onnx_inter_op_threads,
+    )
+    stt = LocalSTT(
+        model_size=settings.stt_model_size,
+        device=settings.stt_device,
+        compute_type=settings.stt_compute_type,
+        beam_size=settings.stt_beam_size,
+        cpu_threads=settings.stt_cpu_threads,
+    )
     llm = LocalLLM(base_url=settings.llm_base_url, model=settings.llm_model)
     tts = LocalTTS(voice_model_path=settings.tts_voice_model)
     filler_model = FillerModel(base_url=settings.llm_base_url)
     filler_policy = FillerPolicy()
     readiness_detector = IntentReadinessDetector()
 
-    lifecycle = PrewarmingManager(vad=vad, stt=stt, llm=llm, tts=tts)
+    lifecycle = PrewarmingManager(
+        vad=vad,
+        stt=stt,
+        llm=llm,
+        tts=tts,
+        max_workers=settings.executor_max_workers,
+    )
     if not args.no_prewarm and not args.simulate:
         lifecycle.warmup_all()
 

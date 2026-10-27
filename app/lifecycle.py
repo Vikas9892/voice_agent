@@ -1,11 +1,23 @@
+import os
 from concurrent.futures import ThreadPoolExecutor
 import time
 import numpy as np
 
 from app.audio.vad import SileroVAD
+from app.config import settings
 from app.llm.main_model import LocalLLM
 from app.stt.local_stt import LocalSTT
 from app.tts.local_tts import LocalTTS
+
+
+def configure_cpu_affinity(num_threads: int | None = None):
+    """
+    Set CPU thread budget and OpenMP/BLAS limits to avoid core oversubscription on AMD Ryzen 5 CPU.
+    """
+    threads = num_threads or getattr(settings, "stt_cpu_threads", 4)
+    threads_str = str(threads)
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(var, threads_str)
 
 
 class PrewarmingManager:
@@ -19,6 +31,7 @@ class PrewarmingManager:
         tts: LocalTTS,
         max_workers: int = 2,
     ):
+        configure_cpu_affinity()
         self.vad = vad
         self.stt = stt
         self.llm = llm

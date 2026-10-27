@@ -247,11 +247,13 @@ class StreamingVoiceOrchestrator:
                     self.gate.set_user_speaking(True)
                     # Speculative trigger on partial speech (300-600ms before turn finalization)
                     n_frames = len(self.turn_manager.audio_chunks)
+                    min_spec_frames = max(int(600 / self.turn_manager.frame_duration_ms), 4)
+                    spec_interval_frames = max(int(350 / self.turn_manager.frame_duration_ms), 2)
                     if (
                         self.filler_model is not None
                         and self.speculative_task is None
-                        and n_frames >= 20  # ~640ms min accumulated speech
-                        and (n_frames - self.speculative_checked_frames) >= 12  # every ~380ms
+                        and n_frames >= min_spec_frames
+                        and (n_frames - self.speculative_checked_frames) >= spec_interval_frames
                     ):
                         self.speculative_checked_frames = n_frames
                         snapshot = np.concatenate(self.turn_manager.audio_chunks)
