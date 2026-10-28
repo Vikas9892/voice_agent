@@ -1,6 +1,10 @@
 import numpy as np
+from typing import TYPE_CHECKING, Optional
 from app.audio.vad import SileroVAD
 from app.conversation.state import TurnState
+
+if TYPE_CHECKING:
+    from app.audio.echo_cancellation import AcousticEchoSuppressor
 
 
 class TurnManager:
@@ -14,6 +18,7 @@ class TurnManager:
         min_speech_duration_ms: int = 200,
         min_silence_duration_ms: int = 500,
         barge_in_frames: int = 3,
+        echo_suppressor: Optional["AcousticEchoSuppressor"] = None,
     ):
         self.vad = vad
         self.sample_rate = sample_rate
@@ -23,6 +28,7 @@ class TurnManager:
         self.min_speech_frames = max(int(min_speech_duration_ms / self.frame_duration_ms), 1)
         self.min_silence_frames = max(int(min_silence_duration_ms / self.frame_duration_ms), 1)
         self.barge_in_frames = barge_in_frames
+        self.echo_suppressor = echo_suppressor
 
         self.state = TurnState.IDLE
         self.consecutive_speech_frames = 0
@@ -36,6 +42,8 @@ class TurnManager:
         self.consecutive_silence_frames = 0
         self.audio_chunks.clear()
         self.vad.reset()
+        if self.echo_suppressor:
+            self.echo_suppressor.set_playback_active(False)
 
     def set_agent_speaking(self):
         """Signal that agent has started audio playback."""
@@ -43,13 +51,22 @@ class TurnManager:
         self.consecutive_speech_frames = 0
         self.consecutive_silence_frames = 0
         self.audio_chunks.clear()
+        if self.echo_suppressor:
+            self.echo_suppressor.set_playback_active(True)
 
     def process_frame(self, frame: np.ndarray) -> tuple[TurnState, np.ndarray | None]:
         """
         Process a 32ms audio frame and evaluate state transitions.
         Returns (new_state, completed_audio_buffer_or_none).
         """
-        is_speech = self.vad.is_speech(frame, self.sample_rate)
+        if self.echo_suppressor and self.state == TurnState.AGENT_SPEAKING:
+            frame, is_echo = self.echo_suppressor.process_frame(frame, is_agent_speaking=True)
+            if is_echo:
+                is_speech = False
+            else:
+                is_speech = self.vad.is_speech(frame, self.sample_rate)
+        else:
+            is_speech = self.vad.is_speech(frame, self.sample_rate)
 
         if self.state == TurnState.IDLE:
             if is_speech:
