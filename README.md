@@ -62,20 +62,35 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [x] **Phase 4:** Observability, Monotonic Timestamps & Latency Profiling
 - [x] **Phase 5:** Contextual SLM Filler Engine
 - [x] **Phase 6:** Intent Readiness Detection & Playback Gating
-- [ ] **Phase 7:** End-to-End Benchmarking & Optimization
-- [ ] **Phase 8:** Packaging, Local UI & Developer Documentation
+- [x] **Phase 7:** End-to-End Benchmarking & Optimization
+- [x] **Phase 8:** Local Web Dashboard & WebSocket Telemetry Gateway
+- [x] **Phase 9:** Real-Time Tool Calling & Dynamic Agent Grounding
+- [x] **Phase 10:** Multi-Turn Conversation Memory, Acoustic Echo Suppression & Unified Packaging
 
 ---
 
-## 📊 Running the Latency Benchmark Suite
-```bash
-# Run 5 automated trials measuring p50, p90, and p95 across all stages
-uv run python benchmarks/run_latency_suite.py --turns 5
-```
-
 ## 🏃 Running the Voice Agent
 
-### 1. Batch Turn Mode (Phase 1)
+### 1. Web Dashboard & Live Streaming Mode (Recommended)
+```bash
+# Launch voice agent with real-time web dashboard at http://localhost:8000
+uv run python app/main.py --dashboard
+
+# Or use the cross-platform launcher
+# Windows PowerShell:
+.\run.ps1 -Dashboard
+
+# Linux / macOS:
+./run.sh --dashboard
+```
+
+### 2. Live Streaming Headless Mode (Phase 2)
+```bash
+# Run continuous streaming VAD and turn-taking loop with interruptible playback
+uv run python app/main.py --streaming
+```
+
+### 3. Batch Turn Mode (Phase 1)
 ```bash
 # Run one turn with live microphone input
 uv run python app/main.py
@@ -84,10 +99,10 @@ uv run python app/main.py
 uv run python app/main.py --simulate
 ```
 
-### 2. Live Streaming Mode with Real-Time Barge-In (Phase 2)
+### 4. Running the Latency Benchmark Suite (Phase 4)
 ```bash
-# Run continuous streaming VAD and turn-taking loop with interruptible playback
-uv run python app/main.py --streaming
+# Run 5 automated trials measuring p50, p90, and p95 across all stages
+uv run python benchmarks/run_latency_suite.py --turns 5
 ```
 
 ## 🚀 Quickstart (Phase 0 Setup)

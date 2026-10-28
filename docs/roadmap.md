@@ -112,9 +112,40 @@ This project is built strictly in modular vertical slices. Each phase produces a
 
 ---
 
-### ⏳ Phase 8: Local Web Dashboard & Packaging
-**Objective:** Provide a sleek local control interface and reproducible packaging.
+### ✅ Phase 8: Local Web Dashboard & WebSocket Gateway [Completed]
+**Objective:** Provide a sleek local control interface and real-time WebSocket event streaming.
 - **Components:**
-  1. `app/api/server.py`: FastAPI server with WebSocket event streaming.
-  2. Modern web dashboard: Live waveform, live partial transcripts, turn state visualizer, waterfall latency breakdown, and parameter toggles.
-  3. Complete documentation and one-command launch script.
+  1. `app/api/server.py`: FastAPI server with `EventBroadcaster`, WebSocket telemetry streaming (`/ws/events`), and REST configuration endpoints.
+  2. `app/static/`: Sleek glassmorphic web dashboard (HTML5, Vanilla CSS, Vanilla JS) featuring real-time sine waveform canvas visualizer, dynamic turn-state badges, live partial transcript stream, and KPI waterfall breakdown.
+  3. Integrated telemetry dispatcher in `StreamingVoiceOrchestrator` emitting audio levels, barge-in signals, transcripts, and latency checkpoints.
+- **Acceptance Criteria:**
+  - [x] Dashboard updates turn states (`IDLE`, `USER_SPEAKING`, `AGENT_SPEAKING`, `INTERRUPTED`) in real time.
+  - [x] Dynamic audio waveform reflects live microphone RMS energy.
+  - [x] Latency waterfall calculates STT, LLM TTFT, and TTS first audio chunk durations.
+
+---
+
+### ✅ Phase 9: Real-Time Tool Calling & Dynamic Agent Grounding [Completed]
+**Objective:** Ground agent responses in real-time system facts, time, calculations, and local notes with sub-10ms tool execution.
+- **Components:**
+  1. `app/tools/registry.py`: Extensible tool registry and decorator engine.
+  2. `app/tools/builtin.py`: Built-in tools for local time/date, system diagnostics (CPU/RAM load), safe arithmetic evaluation, voice notes management, and weather forecast.
+  3. `FastToolMatcher`: Sub-millisecond pre-LLM intent classifier directing factual queries to tools without invoking the heavy 3B LLM, dropping turnaround latency to < 150ms.
+- **Acceptance Criteria:**
+  - [x] Time and date queries return accurate ground truth local time.
+  - [x] Mathematical calculations compute safely without arbitrary eval vulnerabilities.
+  - [x] Matching tool execution bypasses LLM latency and synthesizes speech immediately.
+
+---
+
+### ✅ Phase 10: Multi-Turn Conversation Memory, Acoustic Echo Suppression & Production Packaging [Completed]
+**Objective:** Enable natural multi-turn context retention, software acoustic echo loopback suppression, and unified one-command execution.
+- **Components:**
+  1. `app/conversation/memory.py`: Sliding-window dialogue memory with rolling context compression preserving sub-300ms LLM TTFT and JSON session persistence.
+  2. `app/audio/echo_cancellation.py`: `AcousticEchoSuppressor` filtering microphone speaker loopback during agent speech without hardware AEC DSP while allowing loud human barge-in breakthrough.
+  3. Unified CLI launcher: Single command `python app/main.py --dashboard` and cross-platform launcher scripts (`run.ps1`, `run.sh`).
+- **Acceptance Criteria:**
+  - [x] Multi-turn context is tracked across conversation turns without token ballooning.
+  - [x] Speaker output does not cause false self-barge-in interruptions.
+  - [x] Cross-platform launcher scripts execute out-of-the-box across Windows and Unix environments.
+

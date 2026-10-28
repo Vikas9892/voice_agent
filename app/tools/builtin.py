@@ -137,8 +137,16 @@ class FastToolMatcher:
                 res = tool.execute()
                 return "get_system_stats", res, res
 
-        # 3. Math calculation
-        math_match = re.search(r"(?:calculate|what is|compute)\s+([0-9\s\+\-\*\/\.\(\)\^]+)", lower)
+        # 3. Math calculation (support both symbols and spoken words)
+        math_text = (
+            lower.replace(" plus ", " + ")
+            .replace(" minus ", " - ")
+            .replace(" times ", " * ")
+            .replace(" multiplied by ", " * ")
+            .replace(" divided by ", " / ")
+            .replace(" over ", " / ")
+        )
+        math_match = re.search(r"(?:calculate|what is|compute)\s+([0-9\s\+\-\*\/\.\(\)\^]+)", math_text)
         if math_match and any(op in math_match.group(1) for op in ["+", "-", "*", "/"]):
             expr = math_match.group(1).strip()
             tool = self.registry.get("calculate_math")
