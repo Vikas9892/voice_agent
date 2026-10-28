@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Voice Agent Dashboard</title>
+  <meta name="description" content="Local-first real-time voice conversational agent dashboard with sub-second latency telemetry and live barge-in monitor">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="logo-orb"></div>
+        <div>
+          <h1>Voice Agent Dashboard</h1>
+          <p class="subtitle">Local-First Low-Latency Conversational Intelligence</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-badge" id="ws-status-badge">
+          <span class="status-indicator" id="ws-indicator"></span>
+          <span id="ws-status-text">Connecting...</span>
+        </div>
+        <div class="uptime-badge" id="uptime-display">Uptime: 0s</div>
+      </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="dashboard-grid">
+      <!-- Left Column: Live Audio, Waveform & Turn State -->
+      <section class="card live-telemetry-card">
+        <div class="card-header">
+          <h2>Live Speech Monitor</h2>
+          <div class="turn-state-pill" id="turn-state-pill">IDLE</div>
+        </div>
+
+        <div class="waveform-container">
+          <canvas id="waveform-canvas" width="600" height="140"></canvas>
+          <div class="waveform-overlay">
+            <span id="mic-level-label">Mic RMS: 0.000</span>
+          </div>
+        </div>
+
+        <div class="partial-box">
+          <span class="partial-tag">Live Partial STT:</span>
+          <p id="partial-transcript" class="partial-text">Listening for speech...</p>
+        </div>
+
+        <div class="controls-panel">
+          <div class="control-row">
+            <label for="vad-slider">VAD Sensitivity: <span id="vad-val">0.50</span></label>
+            <input type="range" id="vad-slider" min="0.1" max="0.9" step="0.05" value="0.5">
+          </div>
+          <div class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" id="bargein-toggle" checked>
+              <span class="slider round"></span>
+            </label>
+            <span class="toggle-label">Real-time Barge-In Interruption</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Latency Waterfall & Metrics -->
+      <section class="card metrics-card">
+        <div class="card-header">
+          <h2>Latency Telemetry (ms)</h2>
+          <button class="btn-refresh" id="refresh-metrics-btn">Refresh</button>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-box">
+            <span class="kpi-title">Perceived Latency</span>
+            <span class="kpi-value text-accent" id="metric-perceived">--</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-title">Main TTFT</span>
+            <span class="kpi-value" id="metric-ttft">--</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-title">STT Finalize</span>
+            <span class="kpi-value" id="metric-stt">--</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-title">TTS First Audio</span>
+            <span class="kpi-value" id="metric-tts">--</span>
+          </div>
+        </div>
+
+        <div class="waterfall-container">
+          <h3>Recent Turn Latency Breakdown</h3>
+          <div class="waterfall-bars" id="waterfall-bars">
+            <div class="waterfall-item">
+              <span class="stage-label">STT</span>
+              <div class="bar-track"><div class="bar-fill bar-stt" id="bar-stt" style="width: 25%"></div></div>
+              <span class="stage-val" id="val-stt">--</span>
+            </div>
+            <div class="waterfall-item">
+              <span class="stage-label">LLM</span>
+              <div class="bar-track"><div class="bar-fill bar-llm" id="bar-llm" style="width: 45%"></div></div>
+              <span class="stage-val" id="val-llm">--</span>
+            </div>
+            <div class="waterfall-item">
+              <span class="stage-label">TTS</span>
+              <div class="bar-track"><div class="bar-fill bar-tts" id="bar-tts" style="width: 30%"></div></div>
+              <span class="stage-val" id="val-tts">--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Bottom Span: Live Conversation Stream -->
+      <section class="card transcript-card full-width">
+        <div class="card-header">
+          <h2>Conversational Timeline</h2>
+          <span class="turn-counter" id="turn-counter">Turns: 0</span>
+        </div>
+        <div class="timeline-container" id="timeline-container">
+          <div class="timeline-empty" id="timeline-empty">No conversation turns recorded yet. Speak into your microphone!</div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>Local Voice Agent &bull; Dual-Track Concurrent Architecture &bull; AMD Ryzen 5 CPU AVX2</span>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
