@@ -16,6 +16,7 @@ from app.llm.main_model import LocalLLM
 from app.observability.events import TurnMetrics
 from app.observability.metrics import MetricsLogger
 from app.stt.local_stt import LocalSTT
+from app.tools.builtin import FastToolMatcher
 from app.tts.local_tts import LocalTTS
 
 
@@ -37,6 +38,7 @@ class StreamingVoiceOrchestrator:
         sample_rate: int = 16000,
         frame_samples: int = 512,
         broadcaster=None,
+        tool_matcher: FastToolMatcher | None = None,
     ):
         self.turn_manager = turn_manager
         self.stt = stt
@@ -51,6 +53,7 @@ class StreamingVoiceOrchestrator:
         self.sample_rate = sample_rate
         self.frame_samples = frame_samples
         self.broadcaster = broadcaster
+        self.tool_matcher = tool_matcher if tool_matcher is not None else FastToolMatcher()
         self.audio_queue: asyncio.Queue = asyncio.Queue()
         self.active_turn_task: asyncio.Task | None = None
         self.active_metrics: TurnMetrics | None = None
@@ -131,52 +134,62 @@ class StreamingVoiceOrchestrator:
         print(f"\n[User (Turn {turn_id})]: {transcript}")
         self._emit("final_transcript", {"turn_id": turn_id, "text": transcript})
 
-        # 2. Speculative / Dual-Track Filler Generation
-        filler_task = speculative_task
-        if filler_task is None and self.filler_policy.is_eligible(transcript) and self.filler_model is not None:
-            metrics.mark("filler_generation_started")
+        # Check for rapid tool intent match (e.g. time, math, system stats, notes)
+        tool_match = self.tool_matcher.match_and_execute(transcript) if self.tool_matcher else None
+        if tool_match:
+            tool_name, tool_raw, response = tool_match
+            metrics.mark("tool_execution_completed")
+            print(f"[Tool Executed ({tool_name})]: {tool_raw}")
+            self._emit("tool_executed", {"turn_id": turn_id, "tool_name": tool_name, "result": tool_raw, "response": response})
+            if speculative_task and not speculative_task.done():
+                speculative_task.cancel()
+        else:
+            # 2. Speculative / Dual-Track Filler Generation
+            filler_task = speculative_task
+            if filler_task is None and self.filler_policy.is_eligible(transcript) and self.filler_model is not None:
+                metrics.mark("filler_generation_started")
 
-            async def _generate_filler():
-                cand = await loop.run_in_executor(self.executor, self.filler_model.generate_filler, transcript)
-                phrase = self.filler_policy.select_filler(transcript, cand)
-                audio = await loop.run_in_executor(self.executor, self.tts.synthesize, phrase, settings.tts_sample_rate)
-                metrics.mark("filler_generation_completed")
-                return phrase, audio
+                async def _generate_filler():
+                    cand = await loop.run_in_executor(self.executor, self.filler_model.generate_filler, transcript)
+                    phrase = self.filler_policy.select_filler(transcript, cand)
+                    audio = await loop.run_in_executor(self.executor, self.tts.synthesize, phrase, settings.tts_sample_rate)
+                    metrics.mark("filler_generation_completed")
+                    return phrase, audio
 
-            filler_task = asyncio.create_task(_generate_filler())
+                filler_task = asyncio.create_task(_generate_filler())
 
-        # 3. Main LLM Generation
-        metrics.mark("main_llm_request_started")
+            # 3. Main LLM Generation
+            metrics.mark("main_llm_request_started")
 
-        async def _call_main_llm():
-            return await loop.run_in_executor(self.executor, self.llm.generate, transcript)
+            async def _call_main_llm():
+                return await loop.run_in_executor(self.executor, self.llm.generate, transcript)
 
-        main_llm_task = asyncio.create_task(_call_main_llm())
+            main_llm_task = asyncio.create_task(_call_main_llm())
 
-        # Check if speculative or background filler is ready to bridge latency gap
-        if filler_task is not None and not self.gate.main_ready:
-            try:
-                await asyncio.wait({filler_task}, timeout=0.08)
-                if filler_task.done() and not self.gate.main_ready:
-                    f_phrase, f_audio = filler_task.result()
-                    if self.gate.should_play_filler(f_phrase) and len(f_audio) > 0:
-                        self.turn_manager.set_agent_speaking()
-                        metrics.mark("agent_first_audio_played")
-                        print(f"[Agent Filler]: {f_phrase}")
-                        self._emit("agent_filler", {"turn_id": turn_id, "text": f_phrase})
-                        play_audio(f_audio, sample_rate=settings.tts_sample_rate, blocking=False)
-                        interrupted = not await self._wait_playback(len(f_audio) / settings.tts_sample_rate, metrics)
-                        if interrupted:
-                            main_llm_task.cancel()
-                            self.metrics_logger.record_turn(metrics)
-                            return
-            except Exception:
-                pass
+            # Check if speculative or background filler is ready to bridge latency gap
+            if filler_task is not None and not self.gate.main_ready:
+                try:
+                    await asyncio.wait({filler_task}, timeout=0.08)
+                    if filler_task.done() and not self.gate.main_ready:
+                        f_phrase, f_audio = filler_task.result()
+                        if self.gate.should_play_filler(f_phrase) and len(f_audio) > 0:
+                            self.turn_manager.set_agent_speaking()
+                            metrics.mark("agent_first_audio_played")
+                            print(f"[Agent Filler]: {f_phrase}")
+                            self._emit("agent_filler", {"turn_id": turn_id, "text": f_phrase})
+                            play_audio(f_audio, sample_rate=settings.tts_sample_rate, blocking=False)
+                            interrupted = not await self._wait_playback(len(f_audio) / settings.tts_sample_rate, metrics)
+                            if interrupted:
+                                main_llm_task.cancel()
+                                self.metrics_logger.record_turn(metrics)
+                                return
+                except Exception:
+                    pass
 
-        # Await Main LLM response
-        response = await main_llm_task
-        metrics.mark("main_llm_first_token")
-        metrics.mark("main_llm_generation_completed")
+            # Await Main LLM response
+            response = await main_llm_task
+            metrics.mark("main_llm_first_token")
+            metrics.mark("main_llm_generation_completed")
 
         if self.cancellation.is_cancelled() or not response.strip():
             self.turn_manager.reset()
