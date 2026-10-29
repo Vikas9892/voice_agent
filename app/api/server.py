@@ -9,7 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import numpy as np
+
 from app.config import settings
+from app.llm.personas import default_persona_manager
 from app.observability.metrics import MetricsLogger
 
 
@@ -121,6 +124,24 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
             "aggregates": log.aggregate_kpis(),
         }
 
+    @app.get("/api/personas")
+    async def get_personas():
+        return {
+            "personas": default_persona_manager.list_personas(),
+            "active": default_persona_manager.active_persona.name,
+        }
+
+    @app.post("/api/personas/active")
+    async def set_active_persona(payload: Dict[str, str]):
+        name = payload.get("name", "")
+        if default_persona_manager.set_active(name):
+            persona = default_persona_manager.active_persona
+            if orchestrator and hasattr(orchestrator, "llm") and hasattr(orchestrator.llm, "set_persona"):
+                orchestrator.llm.set_persona(persona)
+            await broadcaster.broadcast("persona_changed", {"name": persona.name, "display_name": persona.display_name})
+            return {"status": "ok", "active": persona.name}
+        raise HTTPException(status_code=404, detail="Persona not found")
+
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket):
         await broadcaster.connect(websocket)
@@ -132,6 +153,7 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
                     "uptime_seconds": round(time.time() - start_time, 2),
                     "vad_threshold": settings.vad_threshold,
                     "barge_in_enabled": settings.barge_in_enabled,
+                    "active_persona": default_persona_manager.active_persona.name,
                 },
                 "timestamp": time.time(),
             })
@@ -152,6 +174,106 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
             await broadcaster.disconnect(websocket)
         except Exception:
             await broadcaster.disconnect(websocket)
+
+    @app.websocket("/ws/voice")
+    async def websocket_voice(websocket: WebSocket):
+        """Full-duplex audio stream for browser Web Audio microphone capture and playback."""
+        await websocket.accept()
+        audio_buffer = bytearray()
+        chunk_size_bytes = settings.audio_chunk_samples * 4  # 512 samples * 4 bytes for float32
+        turn_manager = getattr(orchestrator, "turn_manager", None) if orchestrator else None
+
+        await websocket.send_text(
+            json.dumps({
+                "type": "voice_session_ready",
+                "sample_rate": settings.audio_sample_rate,
+                "persona": default_persona_manager.active_persona.name,
+            })
+        )
+
+        try:
+            while True:
+                message = await websocket.receive()
+                if "bytes" in message and message["bytes"]:
+                    data = message["bytes"]
+                    audio_buffer.extend(data)
+                    while len(audio_buffer) >= chunk_size_bytes:
+                        raw_chunk = bytes(audio_buffer[:chunk_size_bytes])
+                        del audio_buffer[:chunk_size_bytes]
+                        frame = np.frombuffer(raw_chunk, dtype=np.float32).copy()
+
+                        if turn_manager:
+                            new_state, completed_audio = turn_manager.process_frame(frame)
+                            state_name = new_state.name if hasattr(new_state, "name") else str(new_state)
+                            if state_name == "INTERRUPTED":
+                                await websocket.send_text(json.dumps({"type": "barge_in"}))
+                            elif completed_audio is not None and len(completed_audio) > 0:
+                                await websocket.send_text(json.dumps({"type": "processing_turn"}))
+                                loop = asyncio.get_running_loop()
+                                transcript = ""
+                                if orchestrator and hasattr(orchestrator, "stt"):
+                                    transcript = await loop.run_in_executor(
+                                        getattr(orchestrator, "executor", None),
+                                        orchestrator.stt.transcribe,
+                                        completed_audio,
+                                    )
+
+                                if transcript and transcript.strip():
+                                    await websocket.send_text(json.dumps({"type": "transcript", "text": transcript}))
+                                    tool_matcher = getattr(orchestrator, "tool_matcher", None)
+                                    tool_match = tool_matcher.match_and_execute(transcript) if tool_matcher else None
+                                    if tool_match:
+                                        _, _, response = tool_match
+                                    else:
+                                        response = (
+                                            await loop.run_in_executor(
+                                                getattr(orchestrator, "executor", None),
+                                                orchestrator.llm.generate,
+                                                transcript,
+                                            )
+                                            if orchestrator and hasattr(orchestrator, "llm")
+                                            else f"Echo: {transcript}"
+                                        )
+
+                                    await websocket.send_text(json.dumps({"type": "agent_response", "text": response}))
+
+                                    if orchestrator and hasattr(orchestrator, "tts"):
+                                        tts_audio = await loop.run_in_executor(
+                                            getattr(orchestrator, "executor", None),
+                                            orchestrator.tts.synthesize,
+                                            response,
+                                            settings.tts_sample_rate,
+                                        )
+                                        if len(tts_audio) > 0:
+                                            await websocket.send_bytes(tts_audio.tobytes())
+                                            await websocket.send_text(
+                                                json.dumps({
+                                                    "type": "playback_complete",
+                                                    "sample_rate": settings.tts_sample_rate,
+                                                })
+                                            )
+                elif "text" in message and message["text"]:
+                    try:
+                        req = json.loads(message["text"])
+                        action = req.get("action")
+                        if action == "ping":
+                            await websocket.send_text(json.dumps({"type": "pong"}))
+                        elif action == "interrupt":
+                            if orchestrator and hasattr(orchestrator, "cancellation"):
+                                orchestrator.cancellation.cancel_current_turn()
+                            await websocket.send_text(json.dumps({"type": "barge_in"}))
+                        elif action == "set_persona":
+                            pname = req.get("name", "")
+                            if default_persona_manager.set_active(pname):
+                                if orchestrator and hasattr(orchestrator, "llm"):
+                                    orchestrator.llm.set_persona(default_persona_manager.active_persona)
+                                await websocket.send_text(json.dumps({"type": "persona_updated", "persona": pname}))
+                    except json.JSONDecodeError:
+                        pass
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
 
     # Static UI directory mounting if exists
     static_dir = os.path.join(os.path.dirname(__file__), "..", "static")

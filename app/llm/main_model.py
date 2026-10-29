@@ -22,6 +22,11 @@ class LocalLLM:
         self.max_tokens = max_tokens
         self.memory = memory
 
+    def set_persona(self, persona):
+        """Update system prompt and temperature from a Persona instance."""
+        self.system_prompt = persona.system_prompt
+        self.temperature = persona.temperature
+
     def generate(self, user_prompt: str) -> str:
         """Generate response text from local Ollama instance with graceful fallback."""
         url = f"{self.base_url}/api/chat"
