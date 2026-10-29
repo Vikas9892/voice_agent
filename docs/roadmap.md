@@ -149,3 +149,17 @@ This project is built strictly in modular vertical slices. Each phase produces a
   - [x] Speaker output does not cause false self-barge-in interruptions.
   - [x] Cross-platform launcher scripts execute out-of-the-box across Windows and Unix environments.
 
+---
+
+### ✅ Phase 11: Full-Duplex Web Audio Streaming, Browser Voice I/O & Dynamic Voice Personas [Completed]
+**Objective:** Support direct in-browser microphone capture, real-time bidirectional audio streaming over WebSocket, instant browser barge-in, and dynamic voice personas.
+- **Components:**
+  1. `app/api/server.py`: Bidirectional audio streaming gateway at `/ws/voice` accepting raw Float32/Int16 PCM frames from browser microphones and streaming synthesized audio bytes back for immediate client playback.
+  2. `app/llm/personas.py`: `PersonaManager` with hot-swappable conversational personas (`assistant`, `technologist`, `tutor`, `companion`) modulating system prompt and sampling temperature.
+  3. `app/static/`: Web dashboard call interface featuring one-click browser mic connection (`getUserMedia` + `AudioContext`), real-time browser speaker playback, instant audio cutoff on barge-in interruption, and live persona switcher.
+- **Acceptance Criteria:**
+  - [x] Browser client streams live microphone audio over WebSocket and plays agent responses through speakers.
+  - [x] Speaking while the browser is playing agent audio instantly interrupts and halts client playback (< 60ms).
+  - [x] Personas switch dynamically across REST (`/api/personas/active`) and WebSocket commands with immediate effect.
+
+

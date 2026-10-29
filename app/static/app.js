@@ -265,6 +265,205 @@
     refreshBtn.addEventListener('click', fetchMetrics);
   }
 
+  // Persona management
+  const personaSelect = document.getElementById('persona-select');
+  async function loadPersonas() {
+    try {
+      const resp = await fetch('/api/personas');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (personaSelect && data.personas) {
+          personaSelect.innerHTML = '';
+          data.personas.forEach((p) => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = `${p.display_name}`;
+            if (p.is_active) opt.selected = true;
+            personaSelect.appendChild(opt);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Personas fetch error', e);
+    }
+  }
+
+  if (personaSelect) {
+    personaSelect.addEventListener('change', async (e) => {
+      const name = e.target.value;
+      await fetch('/api/personas/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+    });
+  }
+
+  // Web Audio Browser Voice Call (Microphone Ingest & Speaker Output)
+  let voiceWs = null;
+  let audioContext = null;
+  let micMediaStream = null;
+  let micSourceNode = null;
+  let processorNode = null;
+  let activeAudioSource = null;
+  let isCallActive = false;
+
+  const btnVoiceCall = document.getElementById('btn-voice-call');
+  const callBtnText = document.getElementById('call-btn-text');
+  const browserMicStatus = document.getElementById('browser-mic-status');
+
+  async function startBrowserVoiceCall() {
+    try {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
+      micMediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host || 'localhost:8000';
+      voiceWs = new WebSocket(`${protocol}//${host}/ws/voice`);
+      voiceWs.binaryType = 'arraybuffer';
+
+      voiceWs.onopen = () => {
+        isCallActive = true;
+        if (btnVoiceCall) btnVoiceCall.className = 'btn-voice-call active';
+        if (callBtnText) callBtnText.textContent = 'End Voice Call';
+        if (browserMicStatus) {
+          browserMicStatus.className = 'browser-mic-badge active';
+          browserMicStatus.textContent = 'Mic Live';
+        }
+
+        // Setup audio worklet / ScriptProcessor for 16kHz float32 frames
+        micSourceNode = audioContext.createMediaStreamSource(micMediaStream);
+        processorNode = audioContext.createScriptProcessor(512, 1, 1);
+
+        processorNode.onaudioprocess = (e) => {
+          if (!isCallActive || !voiceWs || voiceWs.readyState !== WebSocket.OPEN) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          // Send Float32Array bytes to backend
+          voiceWs.send(inputData.buffer);
+
+          // Update local waveform
+          let sum = 0;
+          for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+          const rms = Math.sqrt(sum / inputData.length);
+          targetRms = Math.max(targetRms, rms);
+          if (micLevelLabel) micLevelLabel.textContent = `Mic RMS: ${rms.toFixed(3)}`;
+        };
+
+        micSourceNode.connect(processorNode);
+        processorNode.connect(audioContext.destination);
+      };
+
+      voiceWs.onmessage = async (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          // Received synthesized audio PCM from backend for speaker playback
+          playAgentAudio(event.data);
+        } else {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'barge_in') {
+              stopAgentAudio();
+              updateTurnState('INTERRUPTED');
+            } else if (data.type === 'transcript') {
+              appendTimelineEntry('user', data.text);
+            } else if (data.type === 'agent_response') {
+              appendTimelineEntry('agent', data.text);
+            }
+          } catch (err) {}
+        }
+      };
+
+      voiceWs.onclose = () => {
+        stopBrowserVoiceCall();
+      };
+    } catch (err) {
+      console.error('Error starting browser mic call:', err);
+      alert('Could not access microphone: ' + err.message);
+      stopBrowserVoiceCall();
+    }
+  }
+
+  function playAgentAudio(arrayBuffer) {
+    if (!audioContext) return;
+    try {
+      const floatArr = new Float32Array(arrayBuffer);
+      const audioBuffer = audioContext.createBuffer(1, floatArr.length, 22050);
+      audioBuffer.copyToChannel(floatArr, 0);
+
+      stopAgentAudio(); // Stop any previously active playback
+      activeAudioSource = audioContext.createBufferSource();
+      activeAudioSource.buffer = audioBuffer;
+      activeAudioSource.connect(audioContext.destination);
+      updateTurnState('AGENT_SPEAKING');
+
+      activeAudioSource.onended = () => {
+        activeAudioSource = null;
+        updateTurnState('IDLE');
+      };
+
+      activeAudioSource.start();
+    } catch (e) {
+      console.warn('Audio playback error', e);
+    }
+  }
+
+  function stopAgentAudio() {
+    if (activeAudioSource) {
+      try {
+        activeAudioSource.stop();
+      } catch (e) {}
+      activeAudioSource = null;
+    }
+  }
+
+  function stopBrowserVoiceCall() {
+    isCallActive = false;
+    stopAgentAudio();
+    if (processorNode) {
+      processorNode.disconnect();
+      processorNode = null;
+    }
+    if (micSourceNode) {
+      micSourceNode.disconnect();
+      micSourceNode = null;
+    }
+    if (micMediaStream) {
+      micMediaStream.getTracks().forEach((t) => t.stop());
+      micMediaStream = null;
+    }
+    if (voiceWs) {
+      if (voiceWs.readyState === WebSocket.OPEN) voiceWs.close();
+      voiceWs = null;
+    }
+    if (btnVoiceCall) btnVoiceCall.className = 'btn-voice-call';
+    if (callBtnText) callBtnText.textContent = 'Start Browser Voice Call';
+    if (browserMicStatus) {
+      browserMicStatus.className = 'browser-mic-badge';
+      browserMicStatus.textContent = 'Offline';
+    }
+  }
+
+  if (btnVoiceCall) {
+    btnVoiceCall.addEventListener('click', () => {
+      if (!isCallActive) {
+        startBrowserVoiceCall();
+      } else {
+        stopBrowserVoiceCall();
+      }
+    });
+  }
+
   function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>"']/g, function (m) {
@@ -275,4 +474,5 @@
   // Initialize
   connectWs();
   fetchMetrics();
+  loadPersonas();
 })();

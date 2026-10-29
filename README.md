@@ -66,6 +66,7 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [x] **Phase 8:** Local Web Dashboard & WebSocket Telemetry Gateway
 - [x] **Phase 9:** Real-Time Tool Calling & Dynamic Agent Grounding
 - [x] **Phase 10:** Multi-Turn Conversation Memory, Acoustic Echo Suppression & Unified Packaging
+- [x] **Phase 11:** Full-Duplex Web Audio Streaming, Browser Voice I/O & Dynamic Voice Personas
 
 ---
 
