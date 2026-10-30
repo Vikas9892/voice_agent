@@ -1,5 +1,6 @@
+import json
+from typing import TYPE_CHECKING, Iterator, Optional
 import httpx
-from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from app.conversation.memory import ConversationMemory
@@ -27,8 +28,8 @@ class LocalLLM:
         self.system_prompt = persona.system_prompt
         self.temperature = persona.temperature
 
-    def generate(self, user_prompt: str) -> str:
-        """Generate response text from local Ollama instance with graceful fallback."""
+    def stream_generate(self, user_prompt: str) -> Iterator[str]:
+        """Stream response tokens from local Ollama instance with graceful fallback."""
         url = f"{self.base_url}/api/chat"
         if self.memory:
             messages = self.memory.get_chat_messages(self.system_prompt, user_prompt)
@@ -42,22 +43,45 @@ class LocalLLM:
             "model": self.model,
             "messages": messages,
             "options": {"temperature": self.temperature, "num_predict": self.max_tokens},
-            "stream": False,
+            "stream": True,
         }
-        response = None
+
+        yielded_tokens = []
+        stream_ok = False
         try:
             with httpx.Client(timeout=30.0) as client:
-                res = client.post(url, json=payload)
-                if res.status_code == 200:
-                    response = res.json().get("message", {}).get("content", "").strip()
+                with client.stream("POST", url, json=payload) as res:
+                    if res.status_code == 200:
+                        stream_ok = True
+                        for line in res.iter_lines():
+                            if not line:
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                                token = chunk.get("message", {}).get("content", "")
+                                if token:
+                                    yielded_tokens.append(token)
+                                    yield token
+                                if chunk.get("done", False):
+                                    break
+                            except json.JSONDecodeError:
+                                pass
         except Exception:
             pass
 
-        if not response:
-            # shortcut: fallback echo if Ollama server is not running locally yet
-            response = f"I received your request: '{user_prompt}'."
+        if not stream_ok or not yielded_tokens:
+            # shortcut: fallback echo if Ollama server is not running locally
+            fallback = f"I received your request: '{user_prompt}'."
+            words = fallback.split()
+            for i, word in enumerate(words):
+                token = word if i == len(words) - 1 else word + " "
+                yielded_tokens.append(token)
+                yield token
 
-        if self.memory:
-            self.memory.add_turn(user_prompt, response)
+        full_response = "".join(yielded_tokens).strip()
+        if self.memory and full_response:
+            self.memory.add_turn(user_prompt, full_response)
 
-        return response
+    def generate(self, user_prompt: str) -> str:
+        """Generate response text from local Ollama instance with graceful fallback."""
+        return "".join(self.stream_generate(user_prompt)).strip()
