@@ -394,31 +394,46 @@
     }
   }
 
+  let audioQueue = [];
+  let isPlayingAudio = false;
+
   function playAgentAudio(arrayBuffer) {
     if (!audioContext) return;
     try {
       const floatArr = new Float32Array(arrayBuffer);
       const audioBuffer = audioContext.createBuffer(1, floatArr.length, 22050);
       audioBuffer.copyToChannel(floatArr, 0);
-
-      stopAgentAudio(); // Stop any previously active playback
-      activeAudioSource = audioContext.createBufferSource();
-      activeAudioSource.buffer = audioBuffer;
-      activeAudioSource.connect(audioContext.destination);
-      updateTurnState('AGENT_SPEAKING');
-
-      activeAudioSource.onended = () => {
-        activeAudioSource = null;
-        updateTurnState('IDLE');
-      };
-
-      activeAudioSource.start();
+      audioQueue.push(audioBuffer);
+      if (!isPlayingAudio) {
+        playNextInQueue();
+      }
     } catch (e) {
-      console.warn('Audio playback error', e);
+      console.warn('Audio queue error', e);
     }
   }
 
+  function playNextInQueue() {
+    if (audioQueue.length === 0) {
+      isPlayingAudio = false;
+      updateTurnState('IDLE');
+      return;
+    }
+    isPlayingAudio = true;
+    updateTurnState('AGENT_SPEAKING');
+    const buf = audioQueue.shift();
+    activeAudioSource = audioContext.createBufferSource();
+    activeAudioSource.buffer = buf;
+    activeAudioSource.connect(audioContext.destination);
+    activeAudioSource.onended = () => {
+      activeAudioSource = null;
+      playNextInQueue();
+    };
+    activeAudioSource.start();
+  }
+
   function stopAgentAudio() {
+    audioQueue = [];
+    isPlayingAudio = false;
     if (activeAudioSource) {
       try {
         activeAudioSource.stop();

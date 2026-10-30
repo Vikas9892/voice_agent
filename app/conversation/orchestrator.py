@@ -18,6 +18,7 @@ from app.observability.metrics import MetricsLogger
 from app.stt.local_stt import LocalSTT
 from app.tools.builtin import FastToolMatcher
 from app.tts.local_tts import LocalTTS
+from app.tts.sentence_splitter import StreamingSentenceChunker
 
 
 class StreamingVoiceOrchestrator:
@@ -136,6 +137,9 @@ class StreamingVoiceOrchestrator:
 
         # Check for rapid tool intent match (e.g. time, math, system stats, notes)
         tool_match = self.tool_matcher.match_and_execute(transcript) if self.tool_matcher else None
+        sentinel = object()
+        sentence_queue = asyncio.Queue()
+
         if tool_match:
             tool_name, tool_raw, response = tool_match
             metrics.mark("tool_execution_completed")
@@ -143,6 +147,8 @@ class StreamingVoiceOrchestrator:
             self._emit("tool_executed", {"turn_id": turn_id, "tool_name": tool_name, "result": tool_raw, "response": response})
             if speculative_task and not speculative_task.done():
                 speculative_task.cancel()
+            sentence_queue.put_nowait(response)
+            sentence_queue.put_nowait(sentinel)
         else:
             # 2. Speculative / Dual-Track Filler Generation
             filler_task = speculative_task
@@ -158,13 +164,21 @@ class StreamingVoiceOrchestrator:
 
                 filler_task = asyncio.create_task(_generate_filler())
 
-            # 3. Main LLM Generation
+            # 3. Main LLM Generation with Sentence Boundary Streaming
             metrics.mark("main_llm_request_started")
 
-            async def _call_main_llm():
-                return await loop.run_in_executor(self.executor, self.llm.generate, transcript)
+            def _stream_llm():
+                chunker = StreamingSentenceChunker()
+                for token in self.llm.stream_generate(transcript):
+                    if self.cancellation.is_cancelled():
+                        break
+                    for s in chunker.add_token(token):
+                        loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                for s in chunker.flush():
+                    loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                loop.call_soon_threadsafe(sentence_queue.put_nowait, sentinel)
 
-            main_llm_task = asyncio.create_task(_call_main_llm())
+            loop.run_in_executor(self.executor, _stream_llm)
 
             # Check if speculative or background filler is ready to bridge latency gap
             if filler_task is not None and not self.gate.main_ready:
@@ -180,52 +194,75 @@ class StreamingVoiceOrchestrator:
                             play_audio(f_audio, sample_rate=settings.tts_sample_rate, blocking=False)
                             interrupted = not await self._wait_playback(len(f_audio) / settings.tts_sample_rate, metrics)
                             if interrupted:
-                                main_llm_task.cancel()
                                 self.metrics_logger.record_turn(metrics)
                                 return
                 except Exception:
                     pass
 
-            # Await Main LLM response
-            response = await main_llm_task
-            metrics.mark("main_llm_first_token")
-            metrics.mark("main_llm_generation_completed")
-
-        if self.cancellation.is_cancelled() or not response.strip():
-            self.turn_manager.reset()
-            return
-
-        print(f"[Agent (Turn {turn_id})]: {response}")
-        self._emit("agent_response", {"turn_id": turn_id, "text": response})
-
-        # 4. Main TTS Synthesis
+        # 4 & 5. Pipelined Sentence Synthesis and Playback
         metrics.mark("tts_request_started")
-        tts_audio = await loop.run_in_executor(self.executor, self.tts.synthesize, response, settings.tts_sample_rate)
-        metrics.mark("tts_first_audio_ready")
-        self.gate.mark_main_ready()
+        played_sentences = []
+        is_first_sentence = True
+        interrupted = False
 
-        if self.cancellation.is_cancelled() or len(tts_audio) == 0:
-            self.turn_manager.reset()
-            return
+        while True:
+            item = await sentence_queue.get()
+            if item is sentinel or self.cancellation.is_cancelled():
+                break
 
-        # 5. Playback Main Answer
-        self.turn_manager.set_agent_speaking()
-        self._emit("state_change", {"state": "AGENT_SPEAKING"})
-        if "agent_first_audio_played" not in metrics.timestamps:
-            metrics.mark("agent_first_audio_played")
-        metrics.mark("main_answer_first_audio_played")
-        play_audio(tts_audio, sample_rate=settings.tts_sample_rate, blocking=False)
+            sentence = item
+            played_sentences.append(sentence)
+            if is_first_sentence:
+                metrics.mark("main_llm_first_token")
 
-        completed_ok = await self._wait_playback(len(tts_audio) / settings.tts_sample_rate, metrics)
-        if completed_ok and not self.cancellation.is_cancelled():
-            self.turn_manager.reset()
-            self._emit("state_change", {"state": "IDLE"})
-            summary = self.metrics_logger.record_turn(metrics)
-            self._emit("turn_completed", summary)
-            print(f"[Turn {turn_id} complete. Perceived: {summary.get('perceived_latency_ms')}ms | Main: {summary.get('main_answer_latency_ms')}ms]")
-        else:
+            # Synthesize sentence chunk
+            chunk_audio = await loop.run_in_executor(
+                self.executor, self.tts.synthesize, sentence, settings.tts_sample_rate
+            )
+
+            if is_first_sentence:
+                metrics.mark("tts_first_audio_ready")
+                self.gate.mark_main_ready()
+                self.turn_manager.set_agent_speaking()
+                self._emit("state_change", {"state": "AGENT_SPEAKING"})
+                if "agent_first_audio_played" not in metrics.timestamps:
+                    metrics.mark("agent_first_audio_played")
+                metrics.mark("main_answer_first_audio_played")
+                is_first_sentence = False
+
+            if self.cancellation.is_cancelled():
+                interrupted = True
+                break
+
+            if len(chunk_audio) > 0:
+                print(f"[Agent Sentence]: {sentence}")
+                self._emit("agent_sentence", {"turn_id": turn_id, "text": sentence})
+                play_audio(chunk_audio, sample_rate=settings.tts_sample_rate, blocking=False)
+                ok = await self._wait_playback(len(chunk_audio) / settings.tts_sample_rate, metrics)
+                if not ok or self.cancellation.is_cancelled():
+                    interrupted = True
+                    break
+
+        full_response = " ".join(played_sentences).strip()
+        metrics.mark("main_llm_generation_completed")
+
+        if interrupted or self.cancellation.is_cancelled():
             summary = self.metrics_logger.record_turn(metrics)
             self._emit("turn_interrupted", summary)
+            self.turn_manager.reset()
+            return
+
+        if not full_response:
+            self.turn_manager.reset()
+            return
+
+        print(f"[Agent (Turn {turn_id})]: {full_response}")
+        self._emit("agent_response", {"turn_id": turn_id, "text": full_response})
+        self.turn_manager.reset()
+        self._emit("state_change", {"state": "IDLE"})
+        summary = self.metrics_logger.record_turn(metrics)
+        self._emit("turn_completed", summary)
+        print(f"[Turn {turn_id} complete. Perceived: {summary.get('perceived_latency_ms')}ms | Main: {summary.get('main_answer_latency_ms')}ms]")
 
     def _audio_callback(self, indata, frames, time_info, status):
         """SoundDevice InputStream callback pushing preprocessed 32ms frames to asyncio queue."""

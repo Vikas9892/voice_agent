@@ -224,34 +224,43 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
                                     tool_match = tool_matcher.match_and_execute(transcript) if tool_matcher else None
                                     if tool_match:
                                         _, _, response = tool_match
+                                        sentence_chunks = [response]
                                     else:
-                                        response = (
-                                            await loop.run_in_executor(
-                                                getattr(orchestrator, "executor", None),
-                                                orchestrator.llm.generate,
-                                                transcript,
-                                            )
-                                            if orchestrator and hasattr(orchestrator, "llm")
-                                            else f"Echo: {transcript}"
-                                        )
+                                        from app.tts.sentence_splitter import StreamingSentenceChunker
+                                        chunker = StreamingSentenceChunker()
+                                        sentence_chunks = []
+                                        if orchestrator and hasattr(orchestrator, "llm"):
+                                            if hasattr(orchestrator.llm, "stream_generate"):
+                                                for token in orchestrator.llm.stream_generate(transcript):
+                                                    for s in chunker.add_token(token):
+                                                        sentence_chunks.append(s)
+                                                for s in chunker.flush():
+                                                    sentence_chunks.append(s)
+                                            else:
+                                                resp = orchestrator.llm.generate(transcript)
+                                                sentence_chunks = [resp]
+                                        else:
+                                            sentence_chunks = [f"Echo: {transcript}"]
 
-                                    await websocket.send_text(json.dumps({"type": "agent_response", "text": response}))
+                                    full_response = " ".join(sentence_chunks)
+                                    await websocket.send_text(json.dumps({"type": "agent_response", "text": full_response}))
 
                                     if orchestrator and hasattr(orchestrator, "tts"):
-                                        tts_audio = await loop.run_in_executor(
-                                            getattr(orchestrator, "executor", None),
-                                            orchestrator.tts.synthesize,
-                                            response,
-                                            settings.tts_sample_rate,
-                                        )
-                                        if len(tts_audio) > 0:
-                                            await websocket.send_bytes(tts_audio.tobytes())
-                                            await websocket.send_text(
-                                                json.dumps({
-                                                    "type": "playback_complete",
-                                                    "sample_rate": settings.tts_sample_rate,
-                                                })
+                                        for idx, s in enumerate(sentence_chunks):
+                                            tts_chunk = await loop.run_in_executor(
+                                                getattr(orchestrator, "executor", None),
+                                                orchestrator.tts.synthesize,
+                                                s,
+                                                settings.tts_sample_rate,
                                             )
+                                            if len(tts_chunk) > 0:
+                                                await websocket.send_bytes(tts_chunk.tobytes())
+                                        await websocket.send_text(
+                                            json.dumps({
+                                                "type": "playback_complete",
+                                                "sample_rate": settings.tts_sample_rate,
+                                            })
+                                        )
                 elif "text" in message and message["text"]:
                     try:
                         req = json.loads(message["text"])

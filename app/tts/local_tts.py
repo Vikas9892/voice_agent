@@ -1,4 +1,5 @@
 import os
+from typing import Iterable, Iterator, Tuple, Union
 import numpy as np
 
 
@@ -31,3 +32,19 @@ class LocalTTS:
         duration = min(max(len(text) * 0.04, 0.3), 2.0)
         t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
         return (0.1 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+    def stream_synthesize(
+        self,
+        sentences: Union[str, Iterable[str]],
+        sample_rate: int = 22050,
+    ) -> Iterator[Tuple[str, np.ndarray]]:
+        """Synthesize a sequence of text sentences, yielding (sentence, audio_array) pairs."""
+        if isinstance(sentences, str):
+            sentences = [sentences]
+        for sentence in sentences:
+            clean = sentence.strip()
+            if not clean:
+                continue
+            audio = self.synthesize(clean, sample_rate=sample_rate)
+            if len(audio) > 0:
+                yield clean, audio
