@@ -40,6 +40,7 @@ class StreamingVoiceOrchestrator:
         frame_samples: int = 512,
         broadcaster=None,
         tool_matcher: FastToolMatcher | None = None,
+        session_recorder=None,
     ):
         self.turn_manager = turn_manager
         self.stt = stt
@@ -55,6 +56,7 @@ class StreamingVoiceOrchestrator:
         self.frame_samples = frame_samples
         self.broadcaster = broadcaster
         self.tool_matcher = tool_matcher if tool_matcher is not None else FastToolMatcher()
+        self.session_recorder = session_recorder
         self.audio_queue: asyncio.Queue = asyncio.Queue()
         self.active_turn_task: asyncio.Task | None = None
         self.active_metrics: TurnMetrics | None = None
@@ -202,6 +204,7 @@ class StreamingVoiceOrchestrator:
         # 4 & 5. Pipelined Sentence Synthesis and Playback
         metrics.mark("tts_request_started")
         played_sentences = []
+        played_audio_chunks = []
         is_first_sentence = True
         interrupted = False
 
@@ -235,6 +238,7 @@ class StreamingVoiceOrchestrator:
                 break
 
             if len(chunk_audio) > 0:
+                played_audio_chunks.append(chunk_audio)
                 print(f"[Agent Sentence]: {sentence}")
                 self._emit("agent_sentence", {"turn_id": turn_id, "text": sentence})
                 play_audio(chunk_audio, sample_rate=settings.tts_sample_rate, blocking=False)
@@ -262,6 +266,20 @@ class StreamingVoiceOrchestrator:
         self._emit("state_change", {"state": "IDLE"})
         summary = self.metrics_logger.record_turn(metrics)
         self._emit("turn_completed", summary)
+        if self.session_recorder:
+            agent_audio_full = np.concatenate(played_audio_chunks) if played_audio_chunks else None
+            loop.run_in_executor(
+                self.executor,
+                self.session_recorder.record_turn,
+                turn_id,
+                audio_buffer,
+                agent_audio_full,
+                self.sample_rate,
+                settings.tts_sample_rate,
+                transcript,
+                full_response,
+                summary,
+            )
         print(f"[Turn {turn_id} complete. Perceived: {summary.get('perceived_latency_ms')}ms | Main: {summary.get('main_answer_latency_ms')}ms]")
 
     def _audio_callback(self, indata, frames, time_info, status):
