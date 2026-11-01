@@ -171,13 +171,34 @@ class StreamingVoiceOrchestrator:
 
             def _stream_llm():
                 chunker = StreamingSentenceChunker()
-                for token in self.llm.stream_generate(transcript):
-                    if self.cancellation.is_cancelled():
-                        break
-                    for s in chunker.add_token(token):
-                        loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
-                for s in chunker.flush():
-                    loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                streamed = False
+                if hasattr(self.llm, "stream_generate"):
+                    try:
+                        tokens = self.llm.stream_generate(transcript)
+                        for token in tokens:
+                            if not isinstance(token, str):
+                                continue
+                            streamed = True
+                            if self.cancellation.is_cancelled():
+                                break
+                            for s in chunker.add_token(token):
+                                loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                        for s in chunker.flush():
+                            loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                    except Exception:
+                        streamed = False
+
+                if not streamed and hasattr(self.llm, "generate"):
+                    try:
+                        full_text = self.llm.generate(transcript)
+                        if isinstance(full_text, str) and full_text.strip():
+                            for s in chunker.add_token(full_text):
+                                loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                            for s in chunker.flush():
+                                loop.call_soon_threadsafe(sentence_queue.put_nowait, s)
+                    except Exception:
+                        pass
+
                 loop.call_soon_threadsafe(sentence_queue.put_nowait, sentinel)
 
             loop.run_in_executor(self.executor, _stream_llm)

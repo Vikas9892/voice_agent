@@ -486,8 +486,100 @@
     });
   }
 
+  // Session History & Audio Replay
+  const sessionSelect = document.getElementById('session-select');
+  const sessionsContainer = document.getElementById('sessions-container');
+  const refreshSessionsBtn = document.getElementById('refresh-sessions-btn');
+  const exportSessionBtn = document.getElementById('export-session-btn');
+
+  async function loadSessions() {
+    try {
+      const res = await fetch('/api/sessions');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!sessionSelect) return;
+      sessionSelect.innerHTML = '';
+      if (!data.sessions || data.sessions.length === 0) {
+        sessionSelect.innerHTML = '<option value="">No recorded sessions</option>';
+        if (sessionsContainer) sessionsContainer.innerHTML = '<div class="timeline-empty">No recorded sessions yet.</div>';
+        return;
+      }
+      data.sessions.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.session_id;
+        opt.textContent = `${s.session_id} (${s.total_turns} turns)`;
+        sessionSelect.appendChild(opt);
+      });
+      loadSessionDetail(data.sessions[0].session_id);
+    } catch (e) {
+      console.warn('Could not load sessions', e);
+    }
+  }
+
+  async function loadSessionDetail(sessionId) {
+    if (!sessionId) return;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+      if (!res.ok) return;
+      const session = await res.json();
+      if (!sessionsContainer) return;
+      sessionsContainer.innerHTML = '';
+      if (!session.turns || session.turns.length === 0) {
+        sessionsContainer.innerHTML = '<div class="timeline-empty">Session has no turns recorded yet.</div>';
+        return;
+      }
+      session.turns.forEach((t) => {
+        const card = document.createElement('div');
+        card.className = 'session-turn-card';
+        const perceived = t.metrics && t.metrics.perceived_latency_ms ? `${t.metrics.perceived_latency_ms}ms` : '--';
+        card.innerHTML = `
+          <div class="session-turn-header">
+            <span>Turn #${t.turn_id} &bull; Persona: ${escapeHtml(t.persona || 'assistant')}</span>
+            <span>Perceived Latency: <strong style="color:var(--accent-cyan);">${perceived}</strong></span>
+          </div>
+          <div><strong style="color:var(--accent-cyan);">User:</strong> ${escapeHtml(t.user_text || '(audio only)')}</div>
+          <div><strong style="color:var(--accent-purple);">Agent:</strong> ${escapeHtml(t.agent_text || '')}</div>
+          <div class="audio-controls-row">
+            ${t.user_audio_file ? `<div class="audio-player-pill"><span>User Audio:</span><audio controls src="/api/sessions/${encodeURIComponent(sessionId)}/audio/${t.turn_id}/user"></audio></div>` : ''}
+            ${t.agent_audio_file ? `<div class="audio-player-pill"><span>Agent Audio:</span><audio controls src="/api/sessions/${encodeURIComponent(sessionId)}/audio/${t.turn_id}/agent"></audio></div>` : ''}
+          </div>
+        `;
+        sessionsContainer.appendChild(card);
+      });
+    } catch (e) {
+      console.warn('Error loading session details', e);
+    }
+  }
+
+  if (sessionSelect) {
+    sessionSelect.addEventListener('change', () => loadSessionDetail(sessionSelect.value));
+  }
+  if (refreshSessionsBtn) {
+    refreshSessionsBtn.addEventListener('click', () => loadSessions());
+  }
+  if (exportSessionBtn) {
+    exportSessionBtn.addEventListener('click', async () => {
+      const sid = sessionSelect ? sessionSelect.value : '';
+      if (!sid) return alert('Select a session to export');
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'markdown' }),
+      });
+      if (res.ok) {
+        const text = await res.text();
+        const blob = new Blob([text], { type: 'text/markdown' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${sid}.md`;
+        a.click();
+      }
+    });
+  }
+
   // Initialize
   connectWs();
   fetchMetrics();
   loadPersonas();
+  loadSessions();
 })();

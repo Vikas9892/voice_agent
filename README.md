@@ -67,6 +67,8 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [x] **Phase 9:** Real-Time Tool Calling & Dynamic Agent Grounding
 - [x] **Phase 10:** Multi-Turn Conversation Memory, Acoustic Echo Suppression & Unified Packaging
 - [x] **Phase 11:** Full-Duplex Web Audio Streaming, Browser Voice I/O & Dynamic Voice Personas
+- [x] **Phase 12:** Streaming Token Generation & Sentence-Boundary Pipelined TTS
+- [x] **Phase 13:** Audio Session Recording, Conversation History & Audio Replay Gateway
 
 ---
 

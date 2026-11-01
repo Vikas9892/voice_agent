@@ -7,6 +7,7 @@ import numpy as np
 from app.audio.echo_cancellation import AcousticEchoSuppressor
 from app.audio.input import record_audio
 from app.audio.playback import play_audio
+from app.audio.session_recorder import SessionAudioRecorder
 from app.audio.vad import SileroVAD
 from app.config import settings
 from app.conversation.memory import ConversationMemory
@@ -130,6 +131,7 @@ def main():
     readiness_detector = IntentReadinessDetector()
     echo_suppressor = AcousticEchoSuppressor()
     tool_matcher = FastToolMatcher()
+    session_recorder = SessionAudioRecorder()
 
     lifecycle = PrewarmingManager(
         vad=vad,
@@ -167,6 +169,7 @@ def main():
                 frame_samples=settings.audio_chunk_samples,
                 broadcaster=broadcaster if args.dashboard else None,
                 tool_matcher=tool_matcher,
+                session_recorder=session_recorder,
             )
             try:
                 if args.dashboard:

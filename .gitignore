@@ -27,6 +27,7 @@ hf_cache/
 
 # Audio recordings & temporary media
 recordings/
+data/
 *.wav
 *.mp3
 *.ogg

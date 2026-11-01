@@ -2,15 +2,17 @@ import asyncio
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Set
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 import numpy as np
 
+from app.audio.session_recorder import SessionAudioRecorder
 from app.config import settings
 from app.llm.personas import default_persona_manager
 from app.observability.metrics import MetricsLogger
@@ -79,9 +81,13 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
     )
 
     # State references
+    recorder = getattr(orchestrator, "session_recorder", None) if orchestrator else None
+    if not recorder:
+        recorder = SessionAudioRecorder()
     app.state.orchestrator = orchestrator
     app.state.metrics_logger = logger
     app.state.broadcaster = broadcaster
+    app.state.session_recorder = recorder
 
     @app.get("/health")
     async def health_check():
@@ -141,6 +147,48 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
             await broadcaster.broadcast("persona_changed", {"name": persona.name, "display_name": persona.display_name})
             return {"status": "ok", "active": persona.name}
         raise HTTPException(status_code=404, detail="Persona not found")
+
+    @app.get("/api/sessions")
+    async def get_sessions():
+        rec = getattr(app.state, "session_recorder", recorder)
+        return {"sessions": SessionAudioRecorder.list_all_sessions(base_dir=str(rec.base_dir))}
+
+    @app.get("/api/sessions/{session_id}")
+    async def get_session_detail(session_id: str):
+        rec = getattr(app.state, "session_recorder", recorder)
+        data = SessionAudioRecorder.load_session(session_id, base_dir=str(rec.base_dir))
+        if not data:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return data
+
+    @app.get("/api/sessions/{session_id}/audio/{turn_id}/{speaker}")
+    async def get_session_turn_audio(session_id: str, turn_id: int, speaker: str):
+        rec = getattr(app.state, "session_recorder", recorder)
+        if speaker not in ("user", "agent"):
+            raise HTTPException(status_code=400, detail="Invalid speaker, must be 'user' or 'agent'")
+        path = Path(rec.base_dir) / session_id / f"turn_{turn_id}_{speaker}.wav"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        return FileResponse(path, media_type="audio/wav")
+
+    @app.post("/api/sessions/{session_id}/export")
+    async def export_session_detail(session_id: str, payload: Dict[str, Any] = None):
+        rec = getattr(app.state, "session_recorder", recorder)
+        fmt = (payload or {}).get("format", "json")
+        result = SessionAudioRecorder.export_session(session_id, fmt=fmt, base_dir=str(rec.base_dir))
+        if result is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if fmt.lower() in ("markdown", "md"):
+            return PlainTextResponse(result, media_type="text/markdown")
+        return JSONResponse(content=json.loads(result))
+
+    @app.delete("/api/sessions/{session_id}")
+    async def delete_session_detail(session_id: str):
+        rec = getattr(app.state, "session_recorder", recorder)
+        success = SessionAudioRecorder.delete_session(session_id, base_dir=str(rec.base_dir))
+        if not success:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "deleted", "session_id": session_id}
 
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket):
@@ -246,6 +294,7 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
                                     await websocket.send_text(json.dumps({"type": "agent_response", "text": full_response}))
 
                                     if orchestrator and hasattr(orchestrator, "tts"):
+                                        recorded_agent_chunks = []
                                         for idx, s in enumerate(sentence_chunks):
                                             tts_chunk = await loop.run_in_executor(
                                                 getattr(orchestrator, "executor", None),
@@ -254,6 +303,7 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
                                                 settings.tts_sample_rate,
                                             )
                                             if len(tts_chunk) > 0:
+                                                recorded_agent_chunks.append(tts_chunk)
                                                 await websocket.send_bytes(tts_chunk.tobytes())
                                         await websocket.send_text(
                                             json.dumps({
@@ -261,6 +311,19 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
                                                 "sample_rate": settings.tts_sample_rate,
                                             })
                                         )
+                                        if recorder:
+                                            agent_audio = np.concatenate(recorded_agent_chunks) if recorded_agent_chunks else None
+                                            turn_count = len(recorder._load_manifest().get("turns", [])) + 1
+                                            recorder.record_turn(
+                                                turn_id=turn_count,
+                                                user_audio=completed_audio,
+                                                agent_audio=agent_audio,
+                                                user_sample_rate=settings.audio_sample_rate,
+                                                agent_sample_rate=settings.tts_sample_rate,
+                                                user_text=transcript,
+                                                agent_text=full_response,
+                                                persona=default_persona_manager.active_persona.name,
+                                            )
                 elif "text" in message and message["text"]:
                     try:
                         req = json.loads(message["text"])

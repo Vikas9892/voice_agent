@@ -174,3 +174,4 @@ class SessionAudioRecorder:
             shutil.rmtree(sdir)
             return True
         return False
+

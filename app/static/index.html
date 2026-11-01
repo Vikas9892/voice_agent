@@ -140,6 +140,23 @@
           <div class="timeline-empty" id="timeline-empty">No conversation turns recorded yet. Speak into your microphone!</div>
         </div>
       </section>
+
+      <!-- Bottom Span: Session Archive & Audio Replay -->
+      <section class="card sessions-card full-width">
+        <div class="card-header">
+          <h2>Recorded Audio Sessions & Replay</h2>
+          <div class="session-actions">
+            <select id="session-select" class="styled-select">
+              <option value="">Loading recorded sessions...</option>
+            </select>
+            <button class="btn-refresh" id="refresh-sessions-btn">Refresh</button>
+            <button class="btn-refresh" id="export-session-btn">Export Markdown</button>
+          </div>
+        </div>
+        <div class="sessions-container" id="sessions-container">
+          <div class="timeline-empty" id="sessions-empty">Select or record a session to replay audio turns.</div>
+        </div>
+      </section>
     </main>
 
     <!-- Footer -->

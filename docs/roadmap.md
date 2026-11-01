@@ -162,4 +162,31 @@ This project is built strictly in modular vertical slices. Each phase produces a
   - [x] Speaking while the browser is playing agent audio instantly interrupts and halts client playback (< 60ms).
   - [x] Personas switch dynamically across REST (`/api/personas/active`) and WebSocket commands with immediate effect.
 
+---
+
+### ✅ Phase 12: Streaming Token Generation & Sentence-Boundary Pipelined TTS [Completed]
+**Objective:** Eliminate end-of-turn latency by streaming LLM tokens incrementally, chunking on natural sentence boundaries, and pipelining TTS audio synthesis.
+- **Components:**
+  1. `app/tts/sentence_splitter.py`: `StreamingSentenceChunker` buffering streamed tokens and emitting speakable sentence units on punctuation boundaries (`.`, `!`, `?`, `\n`, `;`) with abbreviation and numerical decimal protection.
+  2. `app/llm/main_model.py`: `stream_generate` generator yielding tokens via Ollama SSE streaming with graceful local fallback.
+  3. `app/tts/local_tts.py`: `stream_synthesize` generator synthesizing incoming sentence chunks and yielding audio arrays.
+  4. `app/conversation/orchestrator.py` & `app/api/server.py`: Pipelined audio playback starting speech output on the very first synthesized sentence while subsequent sentences are concurrently generated.
+- **Acceptance Criteria:**
+  - [x] Time-to-First-Audio (TTFA) drops significantly by playing sentence 1 before subsequent sentences finish generation.
+  - [x] Barge-in cleanly halts active token generation and flushes queued sentence synthesis.
+  - [x] Browser Web Audio `/ws/voice` gateway streams synthesized sentence chunks sequentially.
+
+---
+
+### ✅ Phase 13: Audio Session Recording, Conversation History & Audio Replay Gateway [Completed]
+**Objective:** Record full-fidelity multi-turn audio artifacts, persist structured session manifests, and provide an interactive audio replay and transcript export gateway.
+- **Components:**
+  1. `app/audio/session_recorder.py`: `SessionAudioRecorder` serializing user and agent audio into 16-bit PCM WAV files (`turn_{id}_user.wav`, `turn_{id}_agent.wav`) and recording JSON manifests with latency metrics.
+  2. `app/api/server.py`: REST session replay API (`/api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/audio/{turn}/{speaker}`, `/api/sessions/{id}/export`).
+  3. `app/static/`: Dashboard session archive panel with inline audio player controls (`<audio controls>`) for user/agent audio replay and one-click Markdown session export.
+- **Acceptance Criteria:**
+  - [x] Multi-turn user speech and synthesized agent responses are stored as standardized WAV files without blocking the voice loop.
+  - [x] Web dashboard lists past sessions, displays turn breakdowns, and plays back turn audio directly.
+  - [x] Sessions can be exported as structured JSON or formatted Markdown transcripts.
+
 
