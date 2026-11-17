@@ -69,6 +69,7 @@ The system is configured and tested for consumer-grade CPU architectures:
 - [x] **Phase 11:** Full-Duplex Web Audio Streaming, Browser Voice I/O & Dynamic Voice Personas
 - [x] **Phase 12:** Streaming Token Generation & Sentence-Boundary Pipelined TTS
 - [x] **Phase 13:** Audio Session Recording, Conversation History & Audio Replay Gateway
+- [x] **Phase 14:** Adaptive Environmental Noise Profiling, Dynamic VAD Calibration & Software AGC
 
 ---
 

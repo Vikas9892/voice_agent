@@ -102,3 +102,4 @@ def test_turn_manager_with_noise_profiler_and_agc():
     assert state == TurnState.IDLE
     assert audio is None
     assert profiler.noise_floor_rms < 0.005
+

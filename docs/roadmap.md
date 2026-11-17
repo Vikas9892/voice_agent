@@ -189,4 +189,18 @@ This project is built strictly in modular vertical slices. Each phase produces a
   - [x] Web dashboard lists past sessions, displays turn breakdowns, and plays back turn audio directly.
   - [x] Sessions can be exported as structured JSON or formatted Markdown transcripts.
 
+---
+
+### ✅ Phase 14: Adaptive Environmental Noise Profiling, Dynamic VAD Calibration & Software AGC [Completed]
+**Objective:** Dynamically profile ambient room noise, adjust VAD sensitivity to suppress false barge-in, and automatically normalize microphone gain with soft peak limiting.
+- **Components:**
+  1. `app/audio/noise_profiler.py`: `AmbientNoiseProfiler` tracking running background noise floor RMS, dynamic SNR (dB), and scaling VAD threshold proportionally to room noise.
+  2. `app/audio/agc.py`: `AutoGainController` providing smooth automatic gain normalization toward target speech RMS with hyperbolic tangent (tanh) soft peak limiting.
+  3. `app/api/server.py`: REST audio calibration and noise profiling endpoints (`GET /api/audio/noise-profile`, `POST /api/audio/calibrate`, `POST /api/audio/agc`).
+  4. `app/static/`: Dashboard live noise floor / SNR telemetry badges, one-click room noise calibration button, and interactive AGC toggle.
+- **Acceptance Criteria:**
+  - [x] Ambient room noise floor is tracked continuously without corruption from speech turns.
+  - [x] High noise environments scale VAD threshold up to 0.75 to suppress false barge-in, while quiet rooms scale down to 0.35 for soft speech detection.
+  - [x] Automatic Gain Control amplifies quiet speech and softly limits loud bursts with zero digital clipping.
+
 

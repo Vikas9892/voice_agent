@@ -74,3 +74,4 @@ class AmbientNoiseProfiler:
             "noise_floor_dbfs": round(self.noise_floor_dbfs, 1),
             "recommended_threshold": round(self.compute_adaptive_threshold(0.5), 2),
         }
+

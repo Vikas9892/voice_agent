@@ -311,7 +311,13 @@ class StreamingVoiceOrchestrator:
         self._frame_count += 1
         if self._frame_count % 4 == 0:
             rms = float(np.sqrt(np.mean(frame**2)))
-            self._emit("audio_level", {"rms": round(rms, 4)})
+            payload = {"rms": round(rms, 4)}
+            np_ref = getattr(self.turn_manager, "noise_profiler", None)
+            if np_ref:
+                payload["noise_floor_rms"] = round(np_ref.noise_floor_rms, 5)
+                payload["snr_db"] = round(np_ref.current_snr_db, 1)
+                payload["adaptive_threshold"] = round(np_ref.compute_adaptive_threshold(settings.vad_threshold), 2)
+            self._emit("audio_level", payload)
         self.audio_queue.put_nowait(frame)
 
     async def run_streaming(self, max_turns: int | None = None):

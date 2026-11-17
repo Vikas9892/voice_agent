@@ -4,8 +4,10 @@ import sys
 import time
 import numpy as np
 
+from app.audio.agc import AutoGainController
 from app.audio.echo_cancellation import AcousticEchoSuppressor
 from app.audio.input import record_audio
+from app.audio.noise_profiler import AmbientNoiseProfiler
 from app.audio.playback import play_audio
 from app.audio.session_recorder import SessionAudioRecorder
 from app.audio.vad import SileroVAD
@@ -132,6 +134,8 @@ def main():
     echo_suppressor = AcousticEchoSuppressor()
     tool_matcher = FastToolMatcher()
     session_recorder = SessionAudioRecorder()
+    noise_profiler = AmbientNoiseProfiler()
+    agc = AutoGainController(enabled=True)
 
     lifecycle = PrewarmingManager(
         vad=vad,
@@ -155,6 +159,8 @@ def main():
                 min_speech_duration_ms=settings.vad_min_speech_duration_ms,
                 min_silence_duration_ms=settings.vad_min_silence_duration_ms,
                 echo_suppressor=echo_suppressor,
+                noise_profiler=noise_profiler,
+                agc=agc,
             )
             orchestrator = StreamingVoiceOrchestrator(
                 turn_manager=turn_manager,

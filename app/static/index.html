@@ -43,6 +43,8 @@
           <canvas id="waveform-canvas" width="600" height="140"></canvas>
           <div class="waveform-overlay">
             <span id="mic-level-label">Mic RMS: 0.000</span>
+            <span id="noise-floor-label">Floor: -46.0 dBFS</span>
+            <span id="snr-label">SNR: 0.0 dB</span>
           </div>
         </div>
 
@@ -78,6 +80,16 @@
               <span class="slider round"></span>
             </label>
             <span class="toggle-label">Real-time Barge-In Interruption</span>
+          </div>
+          <div class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" id="agc-toggle" checked>
+              <span class="slider round"></span>
+            </label>
+            <span class="toggle-label">Automatic Gain Control (AGC)</span>
+          </div>
+          <div class="control-row">
+            <button class="btn-refresh" id="btn-calibrate-mic" style="width: 100%; margin-top: 4px;">🎯 Calibrate Ambient Noise</button>
           </div>
         </div>
       </section>

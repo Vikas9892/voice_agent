@@ -50,3 +50,4 @@ class AutoGainController:
             )
 
         return scaled.astype(np.float32)
+

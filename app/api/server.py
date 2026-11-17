@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 
 import numpy as np
 
+from app.audio.agc import AutoGainController
+from app.audio.noise_profiler import AmbientNoiseProfiler
 from app.audio.session_recorder import SessionAudioRecorder
 from app.config import settings
 from app.llm.personas import default_persona_manager
@@ -84,10 +86,20 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
     recorder = getattr(orchestrator, "session_recorder", None) if orchestrator else None
     if not recorder:
         recorder = SessionAudioRecorder()
+    tm = getattr(orchestrator, "turn_manager", None) if orchestrator else None
+    noise_profiler = getattr(tm, "noise_profiler", None) if tm else None
+    if not noise_profiler:
+        noise_profiler = AmbientNoiseProfiler()
+    agc = getattr(tm, "agc", None) if tm else None
+    if not agc:
+        agc = AutoGainController()
+
     app.state.orchestrator = orchestrator
     app.state.metrics_logger = logger
     app.state.broadcaster = broadcaster
     app.state.session_recorder = recorder
+    app.state.noise_profiler = noise_profiler
+    app.state.agc = agc
 
     @app.get("/health")
     async def health_check():
@@ -189,6 +201,47 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
         return {"status": "deleted", "session_id": session_id}
+
+    @app.get("/api/audio/noise-profile")
+    async def get_noise_profile():
+        np_ref = getattr(app.state, "noise_profiler", noise_profiler)
+        agc_ref = getattr(app.state, "agc", agc)
+        return {
+            "noise_floor_rms": round(np_ref.noise_floor_rms, 6),
+            "noise_floor_dbfs": round(np_ref.noise_floor_dbfs, 1),
+            "current_snr_db": round(np_ref.current_snr_db, 1),
+            "adaptive_threshold": round(np_ref.compute_adaptive_threshold(settings.vad_threshold), 2),
+            "agc_enabled": agc_ref.enabled,
+            "agc_gain": round(agc_ref.current_gain, 2),
+        }
+
+    @app.post("/api/audio/calibrate")
+    async def calibrate_audio(payload: Dict[str, Any] = None):
+        np_ref = getattr(app.state, "noise_profiler", noise_profiler)
+        np_ref.start_calibration()
+        # Collect test frames if audio queue has data
+        if orchestrator and hasattr(orchestrator, "audio_queue"):
+            try:
+                collected = 0
+                while collected < 10 and not orchestrator.audio_queue.empty():
+                    frame = orchestrator.audio_queue.get_nowait()
+                    np_ref.update(frame)
+                    collected += 1
+            except Exception:
+                pass
+        result = np_ref.finish_calibration()
+        await broadcaster.broadcast("noise_calibrated", result)
+        return {"status": "calibrated", "profile": result}
+
+    @app.post("/api/audio/agc")
+    async def update_agc_settings(payload: Dict[str, Any]):
+        agc_ref = getattr(app.state, "agc", agc)
+        if "enabled" in payload:
+            agc_ref.enabled = bool(payload["enabled"])
+        if "target_rms" in payload:
+            agc_ref.target_rms = float(payload["target_rms"])
+        await broadcaster.broadcast("agc_updated", {"enabled": agc_ref.enabled, "target_rms": agc_ref.target_rms})
+        return {"status": "ok", "enabled": agc_ref.enabled, "target_rms": agc_ref.target_rms}
 
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket):

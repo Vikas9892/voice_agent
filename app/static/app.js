@@ -132,6 +132,15 @@
     if (type === 'audio_level') {
       targetRms = data.rms || 0.0;
       if (micLevelLabel) micLevelLabel.textContent = `Mic RMS: ${targetRms.toFixed(3)}`;
+      const noiseFloorLabel = document.getElementById('noise-floor-label');
+      const snrLabel = document.getElementById('snr-label');
+      if (noiseFloorLabel && data.noise_floor_rms !== undefined) {
+        const dbfs = (20 * Math.log10(Math.max(data.noise_floor_rms, 1e-6))).toFixed(1);
+        noiseFloorLabel.textContent = `Floor: ${dbfs} dBFS`;
+      }
+      if (snrLabel && data.snr_db !== undefined) {
+        snrLabel.textContent = `SNR: ${data.snr_db.toFixed(1)} dB`;
+      }
     } else if (type === 'state_change') {
       updateTurnState(data.state || 'IDLE');
     } else if (type === 'partial_transcript') {
@@ -574,6 +583,42 @@
         a.download = `${sid}.md`;
         a.click();
       }
+    });
+  }
+
+  const btnCalibrateMic = document.getElementById('btn-calibrate-mic');
+  const agcToggle = document.getElementById('agc-toggle');
+
+  if (btnCalibrateMic) {
+    btnCalibrateMic.addEventListener('click', async () => {
+      btnCalibrateMic.textContent = '⏳ Calibrating...';
+      try {
+        const res = await fetch('/api/audio/calibrate', { method: 'POST' });
+        const data = await res.json();
+        if (data.profile) {
+          const p = data.profile;
+          btnCalibrateMic.textContent = `✅ Calibrated (${p.noise_floor_dbfs} dBFS)`;
+          if (vadSlider && p.recommended_threshold) {
+            vadSlider.value = p.recommended_threshold;
+            if (vadVal) vadVal.textContent = Number(p.recommended_threshold).toFixed(2);
+          }
+          setTimeout(() => {
+            btnCalibrateMic.textContent = '🎯 Calibrate Ambient Noise';
+          }, 3000);
+        }
+      } catch (e) {
+        btnCalibrateMic.textContent = '❌ Calibration Failed';
+      }
+    });
+  }
+
+  if (agcToggle) {
+    agcToggle.addEventListener('change', async () => {
+      await fetch('/api/audio/agc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: agcToggle.checked }),
+      });
     });
   }
 
