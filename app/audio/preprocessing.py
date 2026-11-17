@@ -34,8 +34,9 @@ def preprocess_audio(
     dc_offset: bool = True,
     noise_gate: bool = True,
     threshold_rms: float = 0.008,
+    agc: object | None = None,
 ) -> np.ndarray:
-    """Sequential pipeline applying DC removal and noise gating to input audio."""
+    """Sequential pipeline applying DC removal, noise gating, and optional AGC to input audio."""
     if len(audio) == 0:
         return audio
     out = audio
@@ -43,4 +44,6 @@ def preprocess_audio(
         out = remove_dc_offset(out)
     if noise_gate:
         out = apply_noise_gate(out, threshold_rms=threshold_rms)
+    if agc and hasattr(agc, "process_frame"):
+        out = agc.process_frame(out)
     return out
