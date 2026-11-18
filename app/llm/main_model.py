@@ -4,6 +4,7 @@ import httpx
 
 if TYPE_CHECKING:
     from app.conversation.memory import ConversationMemory
+    from app.knowledge.retriever import LocalKnowledgeBase
 
 
 class LocalLLM:
@@ -15,6 +16,8 @@ class LocalLLM:
         temperature: float = 0.7,
         max_tokens: int = 150,
         memory: Optional["ConversationMemory"] = None,
+        knowledge_base: Optional["LocalKnowledgeBase"] = None,
+        rag_enabled: bool = True,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -22,20 +25,34 @@ class LocalLLM:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.memory = memory
+        self.knowledge_base = knowledge_base
+        self.rag_enabled = rag_enabled
+        self.last_rag_context: str = ""
 
     def set_persona(self, persona):
         """Update system prompt and temperature from a Persona instance."""
         self.system_prompt = persona.system_prompt
         self.temperature = persona.temperature
 
+    def _build_system_prompt(self, user_prompt: str) -> str:
+        """Augment system prompt with local RAG context when relevant knowledge exists."""
+        self.last_rag_context = ""
+        if self.knowledge_base and self.rag_enabled:
+            context = self.knowledge_base.build_context_block(user_prompt)
+            if context:
+                self.last_rag_context = context
+                return f"{self.system_prompt}\n\nRelevant local knowledge:\n{context}"
+        return self.system_prompt
+
     def stream_generate(self, user_prompt: str) -> Iterator[str]:
         """Stream response tokens from local Ollama instance with graceful fallback."""
         url = f"{self.base_url}/api/chat"
+        effective_system = self._build_system_prompt(user_prompt)
         if self.memory:
-            messages = self.memory.get_chat_messages(self.system_prompt, user_prompt)
+            messages = self.memory.get_chat_messages(effective_system, user_prompt)
         else:
             messages = [
-                {"role": "system", "content": self.system_prompt},
+                {"role": "system", "content": effective_system},
                 {"role": "user", "content": user_prompt},
             ]
 
