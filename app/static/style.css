@@ -637,6 +637,56 @@ input:checked + .slider:before {
   max-width: 220px;
 }
 
+/* Knowledge Base (Voice RAG) */
+.knowledge-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.knowledge-form,
+.knowledge-search {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kb-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.kb-input,
+.kb-textarea {
+  width: 100%;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+}
+
+.kb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.kb-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
 /* Footer */
 .app-footer {
   text-align: center;
@@ -646,7 +696,8 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 860px) {
-  .dashboard-grid {
+  .dashboard-grid,
+  .knowledge-grid {
     grid-template-columns: 1fr;
   }
 }

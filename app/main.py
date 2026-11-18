@@ -17,6 +17,7 @@ from app.conversation.orchestrator import StreamingVoiceOrchestrator
 from app.conversation.turn_manager import TurnManager
 from app.intent.filler_policy import FillerPolicy
 from app.intent.readiness import IntentReadinessDetector
+from app.knowledge.retriever import LocalKnowledgeBase
 from app.lifecycle import PrewarmingManager
 from app.llm.filler_model import FillerModel
 from app.llm.main_model import LocalLLM
@@ -126,7 +127,14 @@ def main():
         cpu_threads=settings.stt_cpu_threads,
     )
     memory = ConversationMemory()
-    llm = LocalLLM(base_url=settings.llm_base_url, model=settings.llm_model, memory=memory)
+    knowledge_base = LocalKnowledgeBase()
+    knowledge_base.load_directory("data/knowledge")
+    llm = LocalLLM(
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        memory=memory,
+        knowledge_base=knowledge_base,
+    )
     tts = LocalTTS(voice_model_path=settings.tts_voice_model)
     filler_model = FillerModel(base_url=settings.llm_base_url)
     filler_policy = FillerPolicy()

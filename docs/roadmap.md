@@ -203,4 +203,18 @@ This project is built strictly in modular vertical slices. Each phase produces a
   - [x] High noise environments scale VAD threshold up to 0.75 to suppress false barge-in, while quiet rooms scale down to 0.35 for soft speech detection.
   - [x] Automatic Gain Control amplifies quiet speech and softly limits loud bursts with zero digital clipping.
 
+---
+
+### ✅ Phase 15: Local Voice RAG & Lightweight Knowledge Base Grounding [Completed]
+**Objective:** Ground local LLM voice responses in user-supplied Markdown/text documents with sub-5ms CPU retrieval and zero external vector database dependencies.
+- **Components:**
+  1. `app/knowledge/retriever.py`: `LocalKnowledgeBase` implementing paragraph-aware chunking, stopword filtering, and BM25+ ranking with directory ingestion (`.md`/`.txt`).
+  2. `app/llm/main_model.py`: Automatic RAG context injection into `LocalLLM` system prompts with bounded character budgets and hot-toggleable `rag_enabled` flag.
+  3. `app/api/server.py`: REST endpoints (`GET /api/knowledge`, `POST /api/knowledge/documents`, `POST /api/knowledge/query`, `POST /api/knowledge/toggle`, `DELETE /api/knowledge/documents/{doc_id}`).
+  4. `app/static/`: Web dashboard Local Knowledge Base panel for indexing notes, testing live retrieval queries, and toggling RAG grounding.
+- **Acceptance Criteria:**
+  - [x] Local BM25+ retrieval ranks relevant snippets cleanly even on single-document corpora.
+  - [x] `LocalLLM` injects retrieved snippets into outgoing chat prompts when enabled and omits them when disabled.
+  - [x] Knowledge documents can be added, queried, toggled, and deleted live via REST API and dashboard UI.
+
 

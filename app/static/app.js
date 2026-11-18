@@ -622,9 +622,102 @@
     });
   }
 
+  // Local Knowledge Base (Voice RAG)
+  const ragToggle = document.getElementById('rag-toggle');
+  const kbTitle = document.getElementById('kb-title');
+  const kbContent = document.getElementById('kb-content');
+  const kbAddBtn = document.getElementById('kb-add-btn');
+  const kbQuery = document.getElementById('kb-query');
+  const kbQueryBtn = document.getElementById('kb-query-btn');
+  const kbResults = document.getElementById('kb-results');
+
+  async function loadKnowledge() {
+    try {
+      const res = await fetch('/api/knowledge');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (ragToggle) ragToggle.checked = Boolean(data.rag_enabled);
+      if (!kbResults) return;
+      if (!data.documents || data.documents.length === 0) {
+        kbResults.innerHTML = '<div class="timeline-empty">No documents indexed yet.</div>';
+        return;
+      }
+      kbResults.innerHTML = '';
+      data.documents.forEach((doc) => {
+        const row = document.createElement('div');
+        row.className = 'kb-item';
+        row.innerHTML = `
+          <span><strong>${escapeHtml(doc.title)}</strong> (${doc.chunk_count} chunks)</span>
+          <button class="btn-refresh" data-doc-id="${escapeHtml(doc.doc_id)}">Delete</button>
+        `;
+        row.querySelector('button').addEventListener('click', async () => {
+          await fetch(`/api/knowledge/documents/${encodeURIComponent(doc.doc_id)}`, { method: 'DELETE' });
+          loadKnowledge();
+        });
+        kbResults.appendChild(row);
+      });
+    } catch (e) {
+      console.warn('Could not load knowledge base', e);
+    }
+  }
+
+  if (kbAddBtn) {
+    kbAddBtn.addEventListener('click', async () => {
+      const title = kbTitle ? kbTitle.value.trim() : '';
+      const content = kbContent ? kbContent.value.trim() : '';
+      if (!title || !content) return;
+      const res = await fetch('/api/knowledge/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content }),
+      });
+      if (res.ok) {
+        if (kbTitle) kbTitle.value = '';
+        if (kbContent) kbContent.value = '';
+        loadKnowledge();
+      }
+    });
+  }
+
+  if (kbQueryBtn) {
+    kbQueryBtn.addEventListener('click', async () => {
+      const query = kbQuery ? kbQuery.value.trim() : '';
+      if (!query) return loadKnowledge();
+      const res = await fetch('/api/knowledge/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, top_k: 3 }),
+      });
+      if (!res.ok || !kbResults) return;
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) {
+        kbResults.innerHTML = '<div class="timeline-empty">No matching snippets found.</div>';
+        return;
+      }
+      kbResults.innerHTML = '';
+      data.results.forEach((hit) => {
+        const row = document.createElement('div');
+        row.className = 'kb-item';
+        row.innerHTML = `<span><strong>${escapeHtml(hit.title)}</strong> (score ${hit.score}): ${escapeHtml(hit.content)}</span>`;
+        kbResults.appendChild(row);
+      });
+    });
+  }
+
+  if (ragToggle) {
+    ragToggle.addEventListener('change', async () => {
+      await fetch('/api/knowledge/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: ragToggle.checked }),
+      });
+    });
+  }
+
   // Initialize
   connectWs();
   fetchMetrics();
   loadPersonas();
   loadSessions();
+  loadKnowledge();
 })();

@@ -16,6 +16,7 @@ from app.audio.agc import AutoGainController
 from app.audio.noise_profiler import AmbientNoiseProfiler
 from app.audio.session_recorder import SessionAudioRecorder
 from app.config import settings
+from app.knowledge.retriever import LocalKnowledgeBase
 from app.llm.personas import default_persona_manager
 from app.observability.metrics import MetricsLogger
 
@@ -93,6 +94,10 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
     agc = getattr(tm, "agc", None) if tm else None
     if not agc:
         agc = AutoGainController()
+    llm_ref = getattr(orchestrator, "llm", None) if orchestrator else None
+    knowledge_base = getattr(llm_ref, "knowledge_base", None) if llm_ref else None
+    if not knowledge_base:
+        knowledge_base = LocalKnowledgeBase()
 
     app.state.orchestrator = orchestrator
     app.state.metrics_logger = logger
@@ -100,6 +105,8 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
     app.state.session_recorder = recorder
     app.state.noise_profiler = noise_profiler
     app.state.agc = agc
+    app.state.knowledge_base = knowledge_base
+    app.state.rag_enabled = getattr(llm_ref, "rag_enabled", True) if llm_ref else True
 
     @app.get("/health")
     async def health_check():
@@ -242,6 +249,54 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
             agc_ref.target_rms = float(payload["target_rms"])
         await broadcaster.broadcast("agc_updated", {"enabled": agc_ref.enabled, "target_rms": agc_ref.target_rms})
         return {"status": "ok", "enabled": agc_ref.enabled, "target_rms": agc_ref.target_rms}
+
+    @app.get("/api/knowledge")
+    async def list_knowledge_documents():
+        kb_ref = getattr(app.state, "knowledge_base", knowledge_base)
+        return {
+            "documents": kb_ref.list_documents(),
+            "rag_enabled": getattr(app.state, "rag_enabled", True),
+        }
+
+    @app.post("/api/knowledge/documents")
+    async def add_knowledge_document(payload: Dict[str, Any]):
+        kb_ref = getattr(app.state, "knowledge_base", knowledge_base)
+        title = str(payload.get("title", "")).strip()
+        content = str(payload.get("content", "")).strip()
+        doc_id = payload.get("doc_id")
+        try:
+            meta = kb_ref.add_document(title=title, content=content, doc_id=doc_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        await broadcaster.broadcast("knowledge_updated", {"action": "added", "document": meta})
+        return {"status": "indexed", "document": meta}
+
+    @app.post("/api/knowledge/query")
+    async def query_knowledge_base(payload: Dict[str, Any]):
+        kb_ref = getattr(app.state, "knowledge_base", knowledge_base)
+        query = str(payload.get("query", "")).strip()
+        top_k = int(payload.get("top_k", 3))
+        if not query:
+            raise HTTPException(status_code=400, detail="Query must be non-empty")
+        results = kb_ref.search(query, top_k=top_k)
+        return {"query": query, "results": results}
+
+    @app.post("/api/knowledge/toggle")
+    async def toggle_knowledge_rag(payload: Dict[str, Any]):
+        enabled = bool(payload.get("enabled", True))
+        app.state.rag_enabled = enabled
+        if orchestrator and hasattr(orchestrator, "llm"):
+            orchestrator.llm.rag_enabled = enabled
+        await broadcaster.broadcast("rag_toggled", {"enabled": enabled})
+        return {"status": "ok", "rag_enabled": enabled}
+
+    @app.delete("/api/knowledge/documents/{doc_id}")
+    async def delete_knowledge_document(doc_id: str):
+        kb_ref = getattr(app.state, "knowledge_base", knowledge_base)
+        if not kb_ref.remove_document(doc_id):
+            raise HTTPException(status_code=404, detail="Document not found")
+        await broadcaster.broadcast("knowledge_updated", {"action": "deleted", "doc_id": doc_id})
+        return {"status": "deleted", "doc_id": doc_id}
 
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket):

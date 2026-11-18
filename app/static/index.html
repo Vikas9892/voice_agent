@@ -169,6 +169,36 @@
           <div class="timeline-empty" id="sessions-empty">Select or record a session to replay audio turns.</div>
         </div>
       </section>
+
+      <!-- Bottom Span: Local Knowledge Base (Voice RAG) -->
+      <section class="card knowledge-card full-width">
+        <div class="card-header">
+          <h2>Local Knowledge Base (Voice RAG)</h2>
+          <div class="toggle-row">
+            <label class="switch">
+              <input type="checkbox" id="rag-toggle" checked>
+              <span class="slider round"></span>
+            </label>
+            <span class="toggle-label">RAG Context Grounding</span>
+          </div>
+        </div>
+        <div class="knowledge-grid">
+          <div class="knowledge-form">
+            <input type="text" id="kb-title" class="kb-input" placeholder="Document title (e.g. WiFi Info)">
+            <textarea id="kb-content" class="kb-textarea" rows="3" placeholder="Paste facts, notes, or instructions to ground voice answers..."></textarea>
+            <button class="btn-refresh" id="kb-add-btn">Add to Knowledge Base</button>
+          </div>
+          <div class="knowledge-search">
+            <div class="kb-search-row">
+              <input type="text" id="kb-query" class="kb-input" placeholder="Test RAG retrieval query...">
+              <button class="btn-refresh" id="kb-query-btn">Search</button>
+            </div>
+            <div id="kb-results" class="kb-list">
+              <div class="timeline-empty">No documents indexed yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- Footer -->

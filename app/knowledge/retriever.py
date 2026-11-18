@@ -213,3 +213,4 @@ class LocalKnowledgeBase:
             parts.append(snippet)
             used += len(snippet) + 1
         return "\n".join(parts)
+

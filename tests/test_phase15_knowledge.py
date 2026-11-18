@@ -108,3 +108,4 @@ def test_llm_injects_rag_context_into_prompt():
         assert llm.last_rag_context == ""
         sys_msg = captured_payloads[0]["messages"][0]["content"]
         assert "Relevant local knowledge:" not in sys_msg
+
