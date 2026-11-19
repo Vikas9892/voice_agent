@@ -16,6 +16,8 @@
   const micLevelLabel = document.getElementById('mic-level-label');
   const vadSlider = document.getElementById('vad-slider');
   const vadVal = document.getElementById('vad-val');
+  const speechRateSlider = document.getElementById('speech-rate-slider');
+  const speechRateVal = document.getElementById('speech-rate-val');
   const bargeinToggle = document.getElementById('bargein-toggle');
   const timelineContainer = document.getElementById('timeline-container');
   const timelineEmpty = document.getElementById('timeline-empty');
@@ -168,6 +170,24 @@
       updateMetrics(data);
       turnCount++;
       if (turnCounter) turnCounter.textContent = `Turns: ${turnCount}`;
+    } else if (type === 'persona_changed') {
+      if (personaSelect && data.name) {
+        personaSelect.value = data.name;
+      }
+      if (speechRateSlider && data.speech_rate !== undefined) {
+        speechRateSlider.value = data.speech_rate;
+        if (speechRateVal) speechRateVal.textContent = `${Number(data.speech_rate).toFixed(2)}x`;
+      }
+    } else if (type === 'tts_config_updated') {
+      if (speechRateSlider && data.speech_rate !== undefined) {
+        speechRateSlider.value = data.speech_rate;
+        if (speechRateVal) speechRateVal.textContent = `${Number(data.speech_rate).toFixed(2)}x`;
+      }
+    } else if (type === 'connection_established') {
+      if (speechRateSlider && data.speech_rate !== undefined) {
+        speechRateSlider.value = data.speech_rate;
+        if (speechRateVal) speechRateVal.textContent = `${Number(data.speech_rate).toFixed(2)}x`;
+      }
     }
   }
 
@@ -300,10 +320,48 @@
   if (personaSelect) {
     personaSelect.addEventListener('change', async (e) => {
       const name = e.target.value;
-      await fetch('/api/personas/active', {
+      const resp = await fetch('/api/personas/active', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
+      });
+      if (resp.ok) {
+        const res = await resp.json();
+        if (res.speech_rate !== undefined && speechRateSlider) {
+          speechRateSlider.value = res.speech_rate;
+          if (speechRateVal) speechRateVal.textContent = `${Number(res.speech_rate).toFixed(2)}x`;
+        }
+      }
+    });
+  }
+
+  // TTS Prosody / Speech Rate Control
+  async function loadTtsConfig() {
+    try {
+      const resp = await fetch('/api/tts/config');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (speechRateSlider && data.speech_rate !== undefined) {
+          speechRateSlider.value = data.speech_rate;
+          if (speechRateVal) speechRateVal.textContent = `${Number(data.speech_rate).toFixed(2)}x`;
+        }
+      }
+    } catch (e) {
+      console.warn('TTS config fetch error', e);
+    }
+  }
+
+  if (speechRateSlider) {
+    speechRateSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (speechRateVal) speechRateVal.textContent = `${val.toFixed(2)}x`;
+    });
+    speechRateSlider.addEventListener('change', async (e) => {
+      const val = parseFloat(e.target.value);
+      await fetch('/api/tts/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speech_rate: val }),
       });
     });
   }
@@ -718,6 +776,7 @@
   connectWs();
   fetchMetrics();
   loadPersonas();
+  loadTtsConfig();
   loadSessions();
   loadKnowledge();
 })();

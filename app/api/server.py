@@ -19,6 +19,7 @@ from app.config import settings
 from app.knowledge.retriever import LocalKnowledgeBase
 from app.llm.personas import default_persona_manager
 from app.observability.metrics import MetricsLogger
+from app.tts.prosody import ProsodyConfig, ProsodyManager, default_prosody_manager
 
 
 class EventBroadcaster:
@@ -98,6 +99,11 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
     knowledge_base = getattr(llm_ref, "knowledge_base", None) if llm_ref else None
     if not knowledge_base:
         knowledge_base = LocalKnowledgeBase()
+    prosody_manager = getattr(orchestrator, "prosody_manager", None) if orchestrator else None
+    if not prosody_manager:
+        prosody_manager = getattr(getattr(orchestrator, "tts", None), "prosody", None)
+    if not prosody_manager or not isinstance(prosody_manager, ProsodyManager):
+        prosody_manager = default_prosody_manager
 
     app.state.orchestrator = orchestrator
     app.state.metrics_logger = logger
@@ -107,6 +113,7 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
     app.state.agc = agc
     app.state.knowledge_base = knowledge_base
     app.state.rag_enabled = getattr(llm_ref, "rag_enabled", True) if llm_ref else True
+    app.state.prosody_manager = prosody_manager
 
     @app.get("/health")
     async def health_check():
@@ -163,9 +170,40 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
             persona = default_persona_manager.active_persona
             if orchestrator and hasattr(orchestrator, "llm") and hasattr(orchestrator.llm, "set_persona"):
                 orchestrator.llm.set_persona(persona)
-            await broadcaster.broadcast("persona_changed", {"name": persona.name, "display_name": persona.display_name})
-            return {"status": "ok", "active": persona.name}
+            prosody_mgr = getattr(app.state, "prosody_manager", default_prosody_manager)
+            prosody_mgr.set_rate(persona.speech_rate)
+            if orchestrator and hasattr(orchestrator, "tts") and hasattr(orchestrator.tts, "prosody"):
+                orchestrator.tts.prosody.speech_rate = persona.speech_rate
+            await broadcaster.broadcast("persona_changed", {
+                "name": persona.name,
+                "display_name": persona.display_name,
+                "speech_rate": persona.speech_rate,
+                "voice_model": persona.voice_model,
+            })
+            return {"status": "ok", "active": persona.name, "speech_rate": persona.speech_rate}
         raise HTTPException(status_code=404, detail="Persona not found")
+
+    @app.get("/api/tts/config")
+    async def get_tts_config():
+        prosody_mgr = getattr(app.state, "prosody_manager", default_prosody_manager)
+        return prosody_mgr.config.to_dict()
+
+    @app.post("/api/tts/config")
+    async def update_tts_config(payload: Dict[str, Any]):
+        prosody_mgr = getattr(app.state, "prosody_manager", default_prosody_manager)
+        updated_cfg = prosody_mgr.update_config(**payload)
+        if orchestrator and hasattr(orchestrator, "tts") and hasattr(orchestrator.tts, "prosody"):
+            orchestrator.tts.prosody = updated_cfg
+        await broadcaster.broadcast("tts_config_updated", updated_cfg.to_dict())
+        return {"status": "ok", "config": updated_cfg.to_dict()}
+
+    @app.get("/api/tts/voices")
+    async def get_tts_voices():
+        prosody_mgr = getattr(app.state, "prosody_manager", default_prosody_manager)
+        return {
+            "voices": prosody_mgr.list_voices(),
+            "active_voice": prosody_mgr.config.voice_name,
+        }
 
     @app.get("/api/sessions")
     async def get_sessions():
@@ -310,6 +348,7 @@ def create_app(orchestrator=None, metrics_logger: MetricsLogger | None = None) -
                     "vad_threshold": settings.vad_threshold,
                     "barge_in_enabled": settings.barge_in_enabled,
                     "active_persona": default_persona_manager.active_persona.name,
+                    "speech_rate": getattr(app.state, "prosody_manager", default_prosody_manager).config.speech_rate,
                 },
                 "timestamp": time.time(),
             })

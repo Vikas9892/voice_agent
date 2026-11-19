@@ -217,4 +217,19 @@ This project is built strictly in modular vertical slices. Each phase produces a
   - [x] `LocalLLM` injects retrieved snippets into outgoing chat prompts when enabled and omits them when disabled.
   - [x] Knowledge documents can be added, queried, toggled, and deleted live via REST API and dashboard UI.
 
+---
+
+### ✅ Phase 16: Voice Prosody Modulation, Dynamic Speech Rate Control & Multi-Voice Engine [Completed]
+**Objective:** Enable real-time dynamic vocal prosody articulation, speaking rate scaling, and persona voice model binding with zero external audio packages.
+- **Components:**
+  1. `app/tts/prosody.py`: `ProsodyConfig` dataclass mapping user speech rate multiplier (0.5x - 2.0x) to Piper `length_scale`, `noise_scale`, `noise_w`, `sentence_silence`, and `pitch_factor`, alongside `ProsodyManager` for voice model cataloging.
+  2. `app/tts/local_tts.py`: `LocalTTS.synthesize` and `stream_synthesize` configured with `ProsodyConfig` support, passing synthesis parameters to Piper ONNX engine and scaling fallback audio generation.
+  3. `app/llm/personas.py`: Persona configurations extended with distinct `speech_rate` and `voice_model` attributes (e.g. Senior Engineer at 1.15x, Socratic Tutor at 0.90x).
+  4. `app/api/server.py`: REST endpoints (`GET /api/tts/config`, `POST /api/tts/config`, `GET /api/tts/voices`) and real-time WebSocket state broadcasting.
+  5. `app/static/`: Dashboard speech rate slider and dynamic prosody synchronization on persona switching.
+- **Acceptance Criteria:**
+  - [x] Dynamic speech rate scaling accurately maps to phoneme duration and scales synthesis output speed.
+  - [x] Personas switch both LLM persona prompts and prosody speech rates automatically.
+  - [x] REST API and WebSocket events synchronize prosody state live to connected web clients.
+
 
